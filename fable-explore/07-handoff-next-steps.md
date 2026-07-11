@@ -86,17 +86,15 @@ Spec: in run_serve read_only branch, compare max(files.indexed_at) age vs
 newest mtime under vault_path (walk_vault, cheap); eprintln a warning if
 index is older. No writes. GATE: unit test + manual lab check.
 
-**2026-07-11 P1 review — CONDITIONAL GO for operator decision.** Local
+**2026-07-11 P1 review — ACCEPTED by operator.** Local
 evidence is green: read-only mode starts no watcher, the startup reconciliation
 path is a no-op (the regression test leaves both a `.md.tmp` file and an
 orphan row untouched), and the disposable lab warning reports `stale=true`.
-The staleness warning is in place. The product decision remains operator-gated:
-accept only if read-only servers are expected to rely on a separate writable
-indexer when the warning appears. `Store::open` still uses the normal migration
-path, so this is a semantic no-self-healing decision, not a claim that every
-legacy-database startup byte is opened read-only.
-Disposition: defer P1 pending explicit operator acceptance; no live semantic
-acceptance or binary swap was performed.
+The staleness warning is in place. The accepted semantics rely on a separate
+writable indexer when the warning appears. `Store::open` still uses the normal
+migration path, so this is a semantic no-self-healing decision, not a claim
+that every legacy-database startup byte is opened read-only. No live binary
+swap was performed.
 
 ## T5 — quality items Q4/Q5/Q6 (mechanical)
 
