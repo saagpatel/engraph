@@ -977,6 +977,45 @@ pub struct HttpServeOpts {
 // Entry point
 // ---------------------------------------------------------------------------
 
+/// Return `(latest_indexed_at, newest_vault_mtime)` when a read-only serve
+/// process would be serving an index older than the vault on disk.
+///
+/// This deliberately performs only metadata and SQLite reads. Read-only
+/// servers do not start a watcher, so the caller can surface the stale state
+/// without silently mutating the index.
+pub fn read_only_index_staleness(
+    store: &Store,
+    vault_path: &Path,
+    config: &Config,
+) -> Result<Option<(i64, i64)>> {
+    let latest_indexed_at = store
+        .get_all_files()?
+        .iter()
+        .filter_map(|file| file.indexed_at.parse::<i64>().ok())
+        .max();
+    let newest_vault_mtime = crate::indexer::walk_vault(
+        vault_path,
+        &config.exclude,
+        config.respect_gitignore,
+    )?
+    .iter()
+    .filter_map(|path| {
+        std::fs::metadata(path)
+            .ok()?
+            .modified()
+            .ok()?
+            .duration_since(std::time::UNIX_EPOCH)
+            .ok()
+            .map(|duration| duration.as_secs() as i64)
+    })
+    .max();
+
+    match (latest_indexed_at, newest_vault_mtime) {
+        (Some(indexed), Some(mtime)) if mtime > indexed => Ok(Some((indexed, mtime))),
+        _ => Ok(None),
+    }
+}
+
 pub async fn run_serve(
     data_dir: &Path,
     http_opts: Option<HttpServeOpts>,
@@ -1005,6 +1044,15 @@ pub async fn run_serve(
         anyhow::anyhow!("No vault path in index. Run 'engraph index <path>' first.")
     })?;
     let vault_path = PathBuf::from(&vault_path_str);
+
+    if read_only
+        && let Some((latest_indexed_at, newest_vault_mtime)) =
+            read_only_index_staleness(&store, &vault_path, &config)?
+    {
+        eprintln!(
+            "Warning: read-only index is stale (latest indexed_at={latest_indexed_at}, newest vault mtime={newest_vault_mtime}); no file watcher will self-heal it."
+        );
+    }
 
     let cleaned = crate::writer::cleanup_temp_files(&vault_path)?;
     if cleaned > 0 {
@@ -1228,6 +1276,54 @@ mod tests {
         assert!(
             result.is_err(),
             "unknown op variant should fail deserialization"
+        );
+    }
+
+    #[test]
+    fn read_only_index_staleness_detects_newer_vault_file() {
+        let vault = tempfile::tempdir().unwrap();
+        let note = vault.path().join("note.md");
+        std::fs::write(&note, "# Fresh note\n").unwrap();
+
+        let store = Store::open_memory().unwrap();
+        let file_id = store
+            .insert_file(
+                "note.md",
+                "hash",
+                0,
+                &[],
+                "abc123",
+                None,
+                None,
+            )
+            .unwrap();
+        store
+            .conn()
+            .execute(
+                "UPDATE files SET indexed_at = '0' WHERE id = ?1",
+                rusqlite::params![file_id],
+            )
+            .unwrap();
+
+        let config = Config::default();
+        let stale = read_only_index_staleness(&store, vault.path(), &config)
+            .unwrap()
+            .expect("newer vault file should be reported stale");
+        assert_eq!(stale.0, 0);
+        assert!(stale.1 > stale.0);
+
+        store
+            .conn()
+            .execute(
+                "UPDATE files SET indexed_at = ?1 WHERE id = ?2",
+                rusqlite::params![stale.1 + 1, file_id],
+            )
+            .unwrap();
+        assert!(
+            read_only_index_staleness(&store, vault.path(), &config)
+                .unwrap()
+                .is_none(),
+            "index newer than vault should not warn"
         );
     }
 }
