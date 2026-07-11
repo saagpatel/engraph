@@ -58,6 +58,8 @@ worse, reaching `1.2322059e-2` at `n=32`. This makes a Metal-only explanation
 unlikely: the installed llama.cpp encoder's multi-sequence path itself has
 different numerical behavior. The packed implementation and diagnostic knobs
 were reverted; T1 remains blocked without changing the `1e-6` gate.
+Disposition: defer T1 on this branch; revisit after a llama.cpp/backend change
+or an explicit operator-approved acceptance-criterion decision.
 
 ## T2 — P2: in-memory vector scan for serve (medium)
 
