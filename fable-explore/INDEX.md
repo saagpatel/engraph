@@ -22,6 +22,8 @@ proposals, (3) public material for saagarpatel.dev.
   llama.cpp context-reuse + multi-sequence batching practice, sqlite-vec
   scaling benchmarks; explainer-craft survey still open (research agents
   never reported).
+- [07-handoff-next-steps.md](07-handoff-next-steps.md) — dispatch-ready task
+  specs (T1-T7) for a successor session; operator-gated items listed first.
 - [06-public-material/](06-public-material/) —
   [essay draft "Where the CPU actually went"](06-public-material/essay-draft-where-the-cpu-went.md)
   (measure-first teardown, all numbers real) and
