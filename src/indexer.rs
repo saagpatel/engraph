@@ -12,7 +12,7 @@ use crate::chunker::{chunk_markdown, split_oversized_chunks};
 use crate::config::Config;
 use crate::docid::generate_docid;
 use crate::graph::extract_wikilink_targets;
-use crate::llm::EmbedModel;
+use crate::llm::{EmbedModel, ModelDefaults};
 use crate::profile::VaultProfile;
 use crate::store::{FileRecord, Store};
 
@@ -544,6 +544,15 @@ fn run_index_inner(
     profile: Option<&VaultProfile>,
 ) -> Result<IndexResult> {
     let start = Instant::now();
+
+    let defaults = ModelDefaults::default();
+    let embedding_uri = config
+        .models
+        .embed
+        .as_deref()
+        .unwrap_or(&defaults.embed_uri);
+    store.set_meta("embedding_model_uri", embedding_uri)?;
+    store.set_meta("embedding_dim", &embedder.dim().to_string())?;
 
     let cleaned = crate::writer::cleanup_temp_files(vault_path)?;
     if cleaned > 0 {

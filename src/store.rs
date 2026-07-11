@@ -148,6 +148,8 @@ CREATE TABLE IF NOT EXISTS llm_cache (
 );
 "#;
 
+const FTS_TOKENIZER_VERSION: &str = "porter-unicode61-v1";
+
 pub struct Store {
     conn: Connection,
     vector_cache: Option<Arc<crate::vecstore::VectorCache>>,
@@ -874,15 +876,65 @@ impl Store {
 
     /// Ensure the FTS5 virtual table exists. Called during init.
     pub fn ensure_fts_table(&self) -> Result<()> {
+        let tokenizer_version = self.get_meta("fts_tokenizer_version")?;
+        if tokenizer_version.as_deref() != Some(FTS_TOKENIZER_VERSION) {
+            let table_sql: Option<String> = self
+                .conn
+                .query_row(
+                    "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'chunks_fts'",
+                    [],
+                    |row| row.get(0),
+                )
+                .optional()?;
+
+            match table_sql {
+                None => self.create_fts_table()?,
+                Some(sql) if !sql.to_ascii_lowercase().contains("porter") => {
+                    self.rebuild_fts_table()?;
+                }
+                Some(_) => {}
+            }
+
+            self.set_meta("fts_tokenizer_version", FTS_TOKENIZER_VERSION)?;
+        }
+        Ok(())
+    }
+
+    fn create_fts_table(&self) -> Result<()> {
         self.conn
             .execute_batch(
                 "CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
                 content,
                 file_id UNINDEXED,
-                chunk_seq UNINDEXED
+                chunk_seq UNINDEXED,
+                tokenize='porter unicode61'
             );",
             )
             .context("failed to create FTS5 virtual table")?;
+        Ok(())
+    }
+
+    /// Replace a legacy unicode61 FTS table with porter unicode61 while
+    /// preserving its rows. This rebuilds only the lexical index; embeddings
+    /// and chunk records are untouched.
+    fn rebuild_fts_table(&self) -> Result<()> {
+        self.conn
+            .execute_batch(
+                "DROP TABLE IF EXISTS temp.chunks_fts_backup;
+                 CREATE TEMP TABLE chunks_fts_backup AS
+                     SELECT content, file_id, chunk_seq FROM chunks_fts;
+                 DROP TABLE chunks_fts;
+                 CREATE VIRTUAL TABLE chunks_fts USING fts5(
+                     content,
+                     file_id UNINDEXED,
+                     chunk_seq UNINDEXED,
+                     tokenize='porter unicode61'
+                 );
+                 INSERT INTO chunks_fts (content, file_id, chunk_seq)
+                     SELECT content, file_id, chunk_seq FROM chunks_fts_backup;
+                 DROP TABLE temp.chunks_fts_backup;",
+            )
+            .context("failed to rebuild FTS5 table with porter tokenizer")?;
         Ok(())
     }
 
@@ -3483,6 +3535,43 @@ mod tests {
     }
 
     // ── delete_file_hard tests ──────────────────────────────────
+
+    #[test]
+    fn test_fts_legacy_table_rebuilds_with_porter() {
+        let store = Store::open_memory().unwrap();
+        store.set_meta("fts_tokenizer_version", "legacy").unwrap();
+        store
+            .conn
+            .execute_batch(
+                "DROP TABLE chunks_fts;
+                 CREATE VIRTUAL TABLE chunks_fts USING fts5(
+                     content,
+                     file_id UNINDEXED,
+                     chunk_seq UNINDEXED,
+                     tokenize='unicode61'
+                 );",
+            )
+            .unwrap();
+        store
+            .conn
+            .execute(
+                "INSERT INTO chunks_fts (content, file_id, chunk_seq) VALUES (?1, ?2, ?3)",
+                params!["ranking systems", 7_i64, 0_i64],
+            )
+            .unwrap();
+
+        store.ensure_fts_table().unwrap();
+
+        let results = store.fts_search("rankings", 10).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].file_id, 7);
+        assert!(results[0].snippet.contains("ranking"));
+        assert!(results[0].snippet.contains("systems"));
+        assert_eq!(
+            store.get_meta("fts_tokenizer_version").unwrap(),
+            Some(FTS_TOKENIZER_VERSION.to_string())
+        );
+    }
 
     #[test]
     fn test_delete_file_hard() {
