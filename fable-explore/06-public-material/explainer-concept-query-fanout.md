@@ -34,38 +34,53 @@ scroll-jacked: each stage is a discrete, replayable beat with a caption.
 (Scroll-driven versions of this die on mobile and under prefers-reduced-motion;
 a stepper respects both.)
 
-## The seven beats
+## The eight beats
 
-1. **The question arrives.** A query chip ("what did I decide about the
-   flywheel?") sits above the dormant graph. Reader can pick from 4 preset
-   queries; each plays differently through every later beat.
-2. **Semantic lane.** Notes glow by embedding similarity (heat = cosine).
+*(Restructured after the explainer-craft research: cold-open on the
+uncertainty hook — distill.pub's evidence says animation earns its keep on
+causality/uncertainty, and Sam Rose's pieces open on a "wait, what?" moment,
+not a diagram. Sandbox moved to the end per Nicky Case's guided-freedom
+pattern.)*
+
+1. **Cold open: run it twice.** A search box, a dormant graph, no
+   explanation yet. The reader hits "search," gets a ranked list. A "run it
+   again" button — same query, and two results at the tail swap places (a
+   faithful simulation of the pre-fix system, run counter included:
+   "run 7: B, A"). One line of copy: *"Same notes, same query. This system
+   really did that, 6 runs out of 10. The rest of this page is why."*
+2. **The question, properly.** The query chip settles above the graph;
+   reader can swap among 4 presets (each plays differently through every
+   later beat, including one that returns a genuinely mediocre answer —
+   retrieval limits shown, not narrated).
+3. **Semantic lane.** Notes glow by embedding similarity (heat = cosine).
    The point that lands: *fuzzy, vocabulary-independent, sometimes weird* —
    one semantically-hot note is an obvious false friend.
-3. **Keyword lane.** A different subset lights up, crisp on/off (BM25).
+4. **Keyword lane.** A different subset lights up, crisp on/off (BM25).
    Exact term hits, including one the semantic lane missed entirely. The two
    lanes visibly disagree; that disagreement is the whole reason hybrid
    search exists.
-4. **Graph expansion.** Seeds pulse, then energy flows down wikilink edges:
+5. **Graph expansion.** Seeds pulse, then energy flows down wikilink edges:
    1 hop at 0.8 strength, 2 hops at 0.5 (real decay constants from the
    code). A neighbor gets rejected (greyed) by the relevance filter, with
-   its reason on hover. This is the beat nobody else's explainer has: the
-   note graph as a retrieval signal.
-5. **Rank fusion.** The three lanes' ranked lists slide in as columns;
-   RRF scores accumulate per note (1/(60+rank), shown as stacking bars).
-   Reader drags lane weights and watches the final order re-sort live. An
-   "intent" toggle (conceptual / exact / temporal) sets the weight presets
-   the real system uses.
-6. **The tie roulette (the confession).** Two notes with identical fused
-   scores. A "run it again" button: the pre-fix system, faithfully
-   simulated, returns them in random order (with a run counter, e.g.
-   "run 7: B, A"). Caption tells the true story: the real system disagreed
-   with itself 6 runs out of 10 until deterministic tiebreakers landed.
-   Interactive slop-free honesty; this is the beat readers will remember.
-7. **What it cost.** The final ranked list annotated with the real measured
-   timings of each stage (embed wait, vec scan, graph probes, fusion), and
-   the punchline from the profiling essay: the expensive part wasn't the
-   math.
+   its reason on hover. Prior-art scan says this beat exists nowhere else:
+   the note graph as a retrieval signal.
+6. **Rank fusion.** The three lanes' ranked lists slide in as columns; RRF
+   scores accumulate per note (1/(60+rank), stacking bars). Reader drags
+   lane weights and a k-slider, watches the final order re-sort live; an
+   "intent" toggle (conceptual / exact / temporal) applies the real weight
+   presets. (Study the one strong prior art before building:
+   Serghei's live RRF simulation, blog.serghei.pl.)
+7. **The tie, resolved.** Two notes arrive at an identical fused score and
+   hold visually level for a beat — then the tie-break rule fires as its own
+   small animated event, and the cold open pays off: this exact moment,
+   unhandled, was the run-to-run randomness. Disclosure inside the
+   animation, not a footnote.
+8. **What it cost + what I simplified.** The final list annotated with real
+   measured stage timings (embed wait, vec scan, graph probes, fusion), the
+   essay's punchline (the expensive part wasn't the math), and a Sam
+   Rose-style closing: what this toy leaves out (reranker, real model, real
+   scale) and why. Then the full **sandbox as payoff**: free query entry,
+   all knobs unlocked.
 
 ## Interaction model
 
@@ -94,7 +109,22 @@ the reduced-motion path free.
   standalone piece ("how my notes answer questions"), essay links to it —
   the essay's arc is measurement, the explainer's arc is mechanism; fusing
   them would bloat both.
-- Preset queries: worth including one that returns a genuinely bad answer,
-  as an honesty beat about retrieval limits?
 - The site's palette/typography constraints (dataviz skill + palette rules)
   to be applied at build time, not in this concept.
+
+## Research grounding (see 05-research-notes.md for sources)
+
+- Stepper/segmentation over continuous animation: distill.pub's synthesis —
+  segmentation measurably improves learning; steps double as the
+  reduced-motion path (WCAG 2.3.3: motion carries information here, so the
+  fallback is stepped, not stripped).
+- Sandbox at the end: Nicky Case's guided-freedom pattern; naked sandboxes
+  up front are a named failure mode.
+- Hand-rolled vanilla JS + SVG at this node count; d3 buys nothing here for
+  ~70KB; hybrid Canvas layer only if profiling demands it.
+- Whitespace confirmed: stage-level prior art exists (embedding projectors,
+  live PageRank editors, one live RRF k-slider demo worth studying), but no
+  essay-grade end-to-end hybrid-pipeline narrative was found anywhere.
+- Genre voice: real p50/p95 numbers over adjectives; disclose simplifications
+  by name; counterintuitive hook first (all Sam Rose moves, all consistent
+  with the measured material we already have).
