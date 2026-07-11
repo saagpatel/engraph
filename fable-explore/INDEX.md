@@ -18,18 +18,19 @@ proposals, (3) public material for saagarpatel.dev.
 - [04-improvement-proposals.md](04-improvement-proposals.md) — 10 quality/design
   proposals (intelligence split, health-checker lies, honest confidence, stemming,
   fossil tests, …) + what I deliberately left alone.
-- [05-research-notes.md](05-research-notes.md) — verified web findings:
-  llama.cpp context-reuse + multi-sequence batching practice, sqlite-vec
-  scaling benchmarks; explainer-craft survey still open (research agents
-  never reported).
+- [05-research-notes.md](05-research-notes.md) — fully cited research: llama.cpp
+  slot/batching practice, Apple's own docs naming the Metal-wait mechanism,
+  sqlite-vec benchmarks + ruled-out overhead candidates, explainer-craft
+  survey (distill.pub, Nicky Case, Sam Rose) + confirmed whitespace (no
+  end-to-end hybrid-pipeline explainer exists).
 - [07-handoff-next-steps.md](07-handoff-next-steps.md) — dispatch-ready task
   specs (T1-T7) for a successor session; operator-gated items listed first.
 - [06-public-material/](06-public-material/) —
   [essay draft "Where the CPU actually went"](06-public-material/essay-draft-where-the-cpu-went.md)
   (measure-first teardown, all numbers real) and
   [interactive explainer concept "One query, five opinions"](06-public-material/explainer-concept-query-fanout.md)
-  (7-beat stepper over a synthetic vault graph, includes the tie-roulette
-  confession beat).
+  (8-beat stepper over a synthetic vault graph; cold-opens on the
+  run-it-twice nondeterminism hook, sandbox as payoff at the end).
 
 ## Status log
 
