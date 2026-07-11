@@ -28,6 +28,17 @@ output ≤ 1e-6 (current fix achieved 0.0; small nonzero may appear from
 batch-order float effects — if >1e-6, reject). Measure: full reindex wall
 time in lab (current: 1998s / 5.6% CPU utilization; expect several-fold).
 
+**2026-07-11 Codex attempt — BLOCKED after two gate failures.** The first
+packed implementation built successfully but `fable_batch_parity` exited 1
+with `Encode Error -1: n_tokens == 0`. The repair added the context's
+`n_seq_max`, after which the same harness aborted with exit 134 on llama.cpp's
+`GGML_ASSERT(cparams.n_ubatch >= n_tokens && "encoder requires n_ubatch >= n_tokens")`.
+The installed llama.cpp encoder therefore requires `n_ubatch` to cover the
+entire packed batch, not only the longest sequence as the task spec states.
+The unaccepted T1 source changes were reverted; no T1 implementation commit
+was made. A future retry should set `n_ubatch` to the packed token total (and
+retain `n_seq_max`) before rerunning the parity gate.
+
 ## T2 — P2: in-memory vector scan for serve (medium)
 
 Spec: on serve startup, load (vector_id, embedding) for all chunks into a
