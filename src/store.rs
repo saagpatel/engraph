@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{params, Connection, OptionalExtension};
 use std::collections::HashSet;
 use std::path::Path;
 
@@ -130,6 +130,8 @@ CREATE TABLE IF NOT EXISTS chunks (
     token_count INTEGER NOT NULL,
     vector      BLOB
 );
+
+CREATE INDEX IF NOT EXISTS idx_chunks_file_id ON chunks(file_id);
 
 CREATE TABLE IF NOT EXISTS tombstones (
     id         INTEGER PRIMARY KEY,
@@ -1001,7 +1003,7 @@ impl Store {
     /// Get the best (highest token_count) chunk for a file.
     pub fn get_best_chunk_for_file(&self, file_id: i64) -> Result<Option<(String, String)>> {
         let mut stmt = self.conn.prepare(
-            "SELECT heading, snippet FROM chunks WHERE file_id = ?1 ORDER BY token_count DESC LIMIT 1",
+            "SELECT heading, snippet FROM chunks WHERE file_id = ?1 ORDER BY token_count DESC, id ASC LIMIT 1",
         )?;
         let mut rows = stmt.query_map(params![file_id], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
