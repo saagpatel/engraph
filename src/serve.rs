@@ -1016,6 +1016,18 @@ pub fn read_only_index_staleness(
     }
 }
 
+/// Reconcile crash leftovers and orphaned index rows only for writable serve
+/// processes. Read-only processes must not mutate either the vault or SQLite.
+fn reconcile_startup(store: &Store, vault_path: &Path, read_only: bool) -> Result<(usize, usize)> {
+    if read_only {
+        return Ok((0, 0));
+    }
+
+    let cleaned = crate::writer::cleanup_temp_files(vault_path)?;
+    let orphans = crate::writer::verify_index_integrity(store, vault_path)?;
+    Ok((cleaned, orphans))
+}
+
 pub async fn run_serve(
     data_dir: &Path,
     http_opts: Option<HttpServeOpts>,
@@ -1054,7 +1066,7 @@ pub async fn run_serve(
         );
     }
 
-    let cleaned = crate::writer::cleanup_temp_files(&vault_path)?;
+    let (cleaned, orphans) = reconcile_startup(&store, &vault_path, read_only)?;
     if cleaned > 0 {
         eprintln!(
             "Cleaned up {} incomplete write(s) from previous run",
@@ -1062,7 +1074,6 @@ pub async fn run_serve(
         );
     }
 
-    let orphans = crate::writer::verify_index_integrity(&store, &vault_path)?;
     if orphans > 0 {
         eprintln!("Cleaned up {} orphan DB entries for missing files", orphans);
     }
@@ -1324,6 +1335,34 @@ mod tests {
                 .unwrap()
                 .is_none(),
             "index newer than vault should not warn"
+        );
+    }
+
+    #[test]
+    fn read_only_startup_skips_reconciliation_writes() {
+        let vault = tempfile::tempdir().unwrap();
+        let temp_file = vault.path().join("crash.md.tmp");
+        std::fs::write(&temp_file, "incomplete").unwrap();
+
+        let store = Store::open_memory().unwrap();
+        store
+            .insert_file("missing.md", "hash", 0, &[], "abc123", None, None)
+            .unwrap();
+
+        let (cleaned, orphans) = reconcile_startup(&store, vault.path(), true).unwrap();
+        assert_eq!((cleaned, orphans), (0, 0));
+        assert!(temp_file.exists(), "read-only startup removed a temp file");
+        assert!(
+            store.get_file("missing.md").unwrap().is_some(),
+            "read-only startup removed an orphan row"
+        );
+
+        let (cleaned, orphans) = reconcile_startup(&store, vault.path(), false).unwrap();
+        assert_eq!((cleaned, orphans), (1, 1));
+        assert!(!temp_file.exists(), "writable startup left a temp file");
+        assert!(
+            store.get_file("missing.md").unwrap().is_none(),
+            "writable startup left an orphan row"
         );
     }
 }
