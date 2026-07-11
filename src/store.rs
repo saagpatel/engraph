@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use rusqlite::{params, Connection, OptionalExtension};
 use std::collections::HashSet;
 use std::path::Path;
+use std::sync::Arc;
 
 /// A record representing an indexed file.
 #[derive(Debug, Clone)]
@@ -149,6 +150,7 @@ CREATE TABLE IF NOT EXISTS llm_cache (
 
 pub struct Store {
     conn: Connection,
+    vector_cache: Option<Arc<crate::vecstore::VectorCache>>,
 }
 
 impl Store {
@@ -157,7 +159,10 @@ impl Store {
         crate::vecstore::init_sqlite_vec();
         let conn = Connection::open(path)
             .with_context(|| format!("failed to open database at {}", path.display()))?;
-        let store = Self { conn };
+        let store = Self {
+            conn,
+            vector_cache: None,
+        };
         store.init()?;
         Ok(store)
     }
@@ -166,7 +171,10 @@ impl Store {
     pub fn open_memory() -> Result<Self> {
         crate::vecstore::init_sqlite_vec();
         let conn = Connection::open_in_memory().context("failed to open in-memory database")?;
-        let store = Self { conn };
+        let store = Self {
+            conn,
+            vector_cache: None,
+        };
         store.init()?;
         Ok(store)
     }
@@ -513,8 +521,18 @@ impl Store {
     }
 
     pub fn delete_file(&self, file_id: i64) -> Result<()> {
+        let cached_ids = if self.vector_cache.is_some() {
+            self.get_vector_ids_for_file(file_id)?
+        } else {
+            Vec::new()
+        };
         self.conn
             .execute("DELETE FROM files WHERE id = ?1", params![file_id])?;
+        if let Some(cache) = &self.vector_cache {
+            for vector_id in cached_ids {
+                cache.remove(vector_id);
+            }
+        }
         Ok(())
     }
 
@@ -1347,12 +1365,38 @@ impl Store {
 
     // ── Vec (sqlite-vec) ────────────────────────────────────────
 
+    /// Enable the serve-only in-memory vector scan and load its initial data.
+    /// CLI one-shot stores do not call this, so they continue using sqlite-vec.
+    pub fn enable_vector_cache(&mut self) -> Result<usize> {
+        let vectors = self.get_all_vectors()?;
+        let count = vectors.len();
+        self.vector_cache = Some(Arc::new(crate::vecstore::VectorCache::new(vectors)));
+        Ok(count)
+    }
+
+    /// Refresh the serve cache from SQLite after a bulk mutation.
+    pub fn refresh_vector_cache(&self) -> Result<()> {
+        let Some(cache) = &self.vector_cache else {
+            return Ok(());
+        };
+        cache.replace(self.get_all_vectors()?);
+        Ok(())
+    }
+
     pub fn insert_vec(&self, vector_id: u64, embedding: &[f32]) -> Result<()> {
-        crate::vecstore::insert_vec(&self.conn, vector_id, embedding)
+        crate::vecstore::insert_vec(&self.conn, vector_id, embedding)?;
+        if let Some(cache) = &self.vector_cache {
+            cache.upsert(vector_id, embedding);
+        }
+        Ok(())
     }
 
     pub fn delete_vec(&self, vector_id: u64) -> Result<()> {
-        crate::vecstore::delete_vec(&self.conn, vector_id)
+        crate::vecstore::delete_vec(&self.conn, vector_id)?;
+        if let Some(cache) = &self.vector_cache {
+            cache.remove(vector_id);
+        }
+        Ok(())
     }
 
     pub fn search_vec(
@@ -1361,11 +1405,18 @@ impl Store {
         k: usize,
         tombstones: &std::collections::HashSet<u64>,
     ) -> Result<Vec<(u64, f32)>> {
+        if let Some(cache) = &self.vector_cache {
+            return cache.search(query, k, tombstones);
+        }
         crate::vecstore::search_vec(&self.conn, query, k, tombstones)
     }
 
     pub fn clear_vec(&self) -> Result<()> {
-        crate::vecstore::clear_vec(&self.conn)
+        crate::vecstore::clear_vec(&self.conn)?;
+        if let Some(cache) = &self.vector_cache {
+            cache.clear();
+        }
+        Ok(())
     }
 
     /// Check if the stored embedding dimension differs from the model's dimension.
@@ -1385,6 +1436,9 @@ impl Store {
         crate::vecstore::init_vec_table(&self.conn, new_dim)?;
         self.conn.execute("DELETE FROM chunks", [])?;
         self.conn.execute("DELETE FROM chunks_fts", [])?;
+        if let Some(cache) = &self.vector_cache {
+            cache.clear();
+        }
         Ok(())
     }
 

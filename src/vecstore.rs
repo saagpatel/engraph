@@ -1,8 +1,90 @@
 use std::collections::HashSet;
+use std::sync::RwLock;
 
 use anyhow::Result;
 use rusqlite::Connection;
 use sqlite_vec::sqlite3_vec_init;
+
+/// In-memory brute-force vector index used by long-lived serve processes.
+///
+/// The store keeps the authoritative vectors in SQLite; this cache is a
+/// read-optimized copy that is refreshed as vector rows are inserted or
+/// removed. At the current vault size it is only a few megabytes and avoids
+/// sqlite-vec's per-row virtual-table dispatch on every query.
+pub struct VectorCache {
+    vectors: RwLock<Vec<(u64, Vec<f32>)>>,
+}
+
+impl VectorCache {
+    pub fn new(mut vectors: Vec<(u64, Vec<f32>)>) -> Self {
+        vectors.sort_by_key(|(id, _)| *id);
+        Self {
+            vectors: RwLock::new(vectors),
+        }
+    }
+
+    pub fn replace(&self, mut vectors: Vec<(u64, Vec<f32>)>) {
+        vectors.sort_by_key(|(id, _)| *id);
+        *self.vectors.write().expect("vector cache lock poisoned") = vectors;
+    }
+
+    pub fn upsert(&self, vector_id: u64, embedding: &[f32]) {
+        let mut vectors = self.vectors.write().expect("vector cache lock poisoned");
+        match vectors.binary_search_by_key(&vector_id, |(id, _)| *id) {
+            Ok(index) => vectors[index] = (vector_id, embedding.to_vec()),
+            Err(index) => vectors.insert(index, (vector_id, embedding.to_vec())),
+        }
+    }
+
+    pub fn remove(&self, vector_id: u64) {
+        let mut vectors = self.vectors.write().expect("vector cache lock poisoned");
+        if let Ok(index) = vectors.binary_search_by_key(&vector_id, |(id, _)| *id) {
+            vectors.remove(index);
+        }
+    }
+
+    pub fn clear(&self) {
+        self.vectors
+            .write()
+            .expect("vector cache lock poisoned")
+            .clear();
+    }
+
+    pub fn len(&self) -> usize {
+        self.vectors
+            .read()
+            .expect("vector cache lock poisoned")
+            .len()
+    }
+
+    /// Search all cached vectors by cosine distance.
+    pub fn search(
+        &self,
+        query: &[f32],
+        k: usize,
+        tombstones: &HashSet<u64>,
+    ) -> anyhow::Result<Vec<(u64, f32)>> {
+        let vectors = self.vectors.read().expect("vector cache lock poisoned");
+        let mut scored = Vec::with_capacity(vectors.len());
+        for (id, vector) in vectors.iter() {
+            if tombstones.contains(id) {
+                continue;
+            }
+            if vector.len() != query.len() {
+                anyhow::bail!(
+                    "cached vector dimension mismatch for {id}: {} != {}",
+                    vector.len(),
+                    query.len()
+                );
+            }
+            let dot: f32 = vector.iter().zip(query).map(|(a, b)| a * b).sum();
+            scored.push((*id, 1.0 - dot));
+        }
+        scored.sort_by(|a, b| a.1.total_cmp(&b.1).then_with(|| a.0.cmp(&b.0)));
+        scored.truncate(k);
+        Ok(scored)
+    }
+}
 
 /// Register the sqlite-vec extension as an auto-extension.
 ///

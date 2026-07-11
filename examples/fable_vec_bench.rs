@@ -3,6 +3,7 @@
 //! Also verifies both return the same top-k ids.
 //! Usage: fable_vec_bench <data_dir> <repeats>
 
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -13,7 +14,8 @@ fn main() -> anyhow::Result<()> {
     let data_dir = PathBuf::from(&args[1]);
     let repeats: usize = args[2].parse()?;
 
-    let store = Store::open(&data_dir.join("engraph.db"))?;
+    let mut store = Store::open(&data_dir.join("engraph.db"))?;
+    let cached_vectors = store.enable_vector_cache()?;
     let conn = rusqlite::Connection::open(data_dir.join("engraph.db"))?;
 
     // Load all vectors into memory.
@@ -31,9 +33,10 @@ fn main() -> anyhow::Result<()> {
         })?
         .collect::<Result<_, _>>()?;
     println!(
-        "{{\"stage\":\"load_vectors\",\"n\":{},\"dim\":{},\"us\":{}}}",
+        "{{\"stage\":\"load_vectors\",\"n\":{},\"dim\":{},\"cached_vectors\":{},\"us\":{}}}",
         rows.len(),
         rows.first().map(|r| r.1.len()).unwrap_or(0),
+        cached_vectors,
         t.elapsed().as_micros()
     );
 
@@ -50,18 +53,28 @@ fn main() -> anyhow::Result<()> {
         "{{\"stage\":\"drift\",\"chunks\":{n_chunks},\"vec_rows\":{n_vec},\"chunks_missing_in_vec\":{missing_in_vec},\"vec_orphans\":{orphan_in_vec}}}"
     );
 
-    // Use one of the stored vectors (normalized) as the query.
-    let query = rows[rows.len() / 2].1.clone();
     let k = 15usize;
 
     for rep in 0..repeats {
-        // sqlite-vec path (same call the search pipeline makes)
+        // Use a deterministic battery of distinct stored vectors. A stored
+        // vector is a valid normalized cosine query and keeps this gate
+        // independent of model loading and the operator's live data.
+        let query_index = rep * rows.len() / repeats.max(1);
+        let query = rows[query_index.min(rows.len() - 1)].1.clone();
+
+        // sqlite-vec path (the CLI/reference implementation)
         let t = Instant::now();
         let tombstones = std::collections::HashSet::new();
-        let sv = store.search_vec(&query, k, &tombstones)?;
+        let sv = engraph::vecstore::search_vec(&conn, &query, k, &tombstones)?;
         let t_sqlite = t.elapsed().as_micros();
 
-        // in-memory brute force (cosine distance = 1 - dot, vectors are L2-normalized)
+        // Serve path: Store::search_vec dispatches to its enabled cache.
+        let t = Instant::now();
+        let cached = store.search_vec(&query, k, &tombstones)?;
+        let t_cached = t.elapsed().as_micros();
+
+        // Independent in-memory brute force (cosine distance = 1 - dot,
+        // vectors are L2-normalized).
         let t = Instant::now();
         let mut scored: Vec<(u64, f32)> = rows
             .iter()
@@ -75,13 +88,19 @@ fn main() -> anyhow::Result<()> {
         let t_mem = t.elapsed().as_micros();
 
         let sv_ids: Vec<u64> = sv.iter().map(|(id, _)| *id).collect();
+        let cached_ids: Vec<u64> = cached.iter().map(|(id, _)| *id).collect();
         let mem_ids: Vec<u64> = scored.iter().map(|(id, _)| *id).collect();
-        let same = sv_ids == mem_ids;
+        let same_order = sv_ids == mem_ids;
+        let same_set = sv_ids.iter().copied().collect::<HashSet<_>>()
+            == mem_ids.iter().copied().collect::<HashSet<_>>();
+        let same_cached_set = sv_ids.iter().copied().collect::<HashSet<_>>()
+            == cached_ids.iter().copied().collect::<HashSet<_>>();
         println!(
-            "{{\"rep\":{rep},\"sqlite_vec_us\":{t_sqlite},\"in_memory_us\":{t_mem},\"same_topk\":{same}}}"
+            "{{\"rep\":{rep},\"query_index\":{query_index},\"sqlite_vec_us\":{t_sqlite},\"cached_us\":{t_cached},\"in_memory_us\":{t_mem},\"same_topk_set\":{same_set},\"same_cached_set\":{same_cached_set},\"same_topk_order\":{same_order}}}"
         );
-        if !same && rep == 0 {
+        if (!same_set || !same_cached_set) && rep == 0 {
             eprintln!("sqlite: {:?}", sv_ids);
+            eprintln!("cached: {:?}", cached_ids);
             eprintln!("memory: {:?}", mem_ids);
         }
     }

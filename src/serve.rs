@@ -995,7 +995,9 @@ pub async fn run_serve(
     let db_path = data_dir.join("engraph.db");
     let models_dir = data_dir.join("models");
 
-    let store = Store::open(&db_path)?;
+    let mut store = Store::open(&db_path)?;
+    let cached_vectors = store.enable_vector_cache()?;
+    tracing::info!(cached_vectors, "loaded in-memory vector cache for serve");
     let config = Config::load()?;
     let embedder = crate::llm::LlamaEmbed::new(&models_dir, &config)?;
 
