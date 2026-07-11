@@ -39,6 +39,17 @@ The unaccepted T1 source changes were reverted; no T1 implementation commit
 was made. A future retry should set `n_ubatch` to the packed token total (and
 retain `n_seq_max`) before rerunning the parity gate.
 
+**2026-07-11 retry — BLOCKED after two numeric gate failures.** The retry with
+`n_ubatch` set to the packed token total built cleanly and passed the lib gate
+(`470 passed; 0 failed`), but the parity output was
+`n=32,batch_ms=463,per_text_fresh_ms=625,max_abs_diff=2.7627777e-4,vectors_beyond_1e-6=32`.
+A targeted repair that kept the graph capacity fixed across packed and single
+calls produced the same failing result:
+`n=32,batch_ms=303,per_text_fresh_ms=1585,max_abs_diff=2.7627777e-4,vectors_beyond_1e-6=32`.
+The harness process exited zero despite the numeric mismatch, so the stated
+`max_abs_diff <= 1e-6` acceptance criterion is authoritative. The unaccepted
+T1 source changes were reverted again; no T1 implementation commit was made.
+
 ## T2 — P2: in-memory vector scan for serve (medium)
 
 Spec: on serve startup, load (vector_id, embedding) for all chunks into a
