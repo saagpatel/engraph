@@ -1066,28 +1066,37 @@ pub async fn run_serve(
     let http_reranker = reranker.as_ref().map(Arc::clone);
     let http_recent_writes = recent_writes.clone();
 
-    // Start file watcher for real-time index updates
-    let mut exclude = config.exclude.clone();
-    if let Some(ref prof) = *profile_arc
-        && let Some(ref archive) = prof.structure.folders.archive
-    {
-        let pattern = format!("{}/", archive);
-        if !exclude.contains(&pattern) {
-            exclude.push(pattern);
+    // Start file watcher for real-time index updates — writable servers only.
+    // A read-only server must not mutate the index: with N concurrent servers,
+    // an unconditional watcher meant every vault save was re-chunked,
+    // re-embedded, and re-written N times by N processes racing on one SQLite
+    // file (and N startup reconciliations racing at spawn). Read-only servers
+    // see index updates anyway: each query reads the shared WAL-mode DB.
+    let watcher = if read_only {
+        None
+    } else {
+        let mut exclude = config.exclude.clone();
+        if let Some(ref prof) = *profile_arc
+            && let Some(ref archive) = prof.structure.folders.archive
+        {
+            let pattern = format!("{}/", archive);
+            if !exclude.contains(&pattern) {
+                exclude.push(pattern);
+            }
         }
-    }
-    let (watcher_handle, watcher_shutdown) = crate::watcher::start_watcher(
-        store_arc.clone(),
-        embedder_arc.clone(),
-        vault_path_arc.clone(),
-        profile_arc.clone(),
-        config,
-        exclude,
-        recent_writes.clone(),
-    )?;
+        Some(crate::watcher::start_watcher(
+            store_arc.clone(),
+            embedder_arc.clone(),
+            vault_path_arc.clone(),
+            profile_arc.clone(),
+            config,
+            exclude,
+            recent_writes.clone(),
+        )?)
+    };
 
     if read_only {
-        eprintln!("Read-only mode: write tools disabled");
+        eprintln!("Read-only mode: write tools disabled, file watcher not started");
     }
 
     let server = EngraphServer {
@@ -1155,9 +1164,11 @@ pub async fn run_serve(
     cancel_token.cancel(); // triggers HTTP graceful shutdown
 
     // Shut down watcher cleanly after MCP transport exits
-    let _ = watcher_shutdown.send(());
-    if let Err(e) = watcher_handle.join() {
-        tracing::warn!("Watcher thread panicked: {:?}", e);
+    if let Some((watcher_handle, watcher_shutdown)) = watcher {
+        let _ = watcher_shutdown.send(());
+        if let Err(e) = watcher_handle.join() {
+            tracing::warn!("Watcher thread panicked: {:?}", e);
+        }
     }
 
     Ok(())
