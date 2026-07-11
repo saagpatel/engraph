@@ -993,22 +993,19 @@ pub fn read_only_index_staleness(
         .iter()
         .filter_map(|file| file.indexed_at.parse::<i64>().ok())
         .max();
-    let newest_vault_mtime = crate::indexer::walk_vault(
-        vault_path,
-        &config.exclude,
-        config.respect_gitignore,
-    )?
-    .iter()
-    .filter_map(|path| {
-        std::fs::metadata(path)
-            .ok()?
-            .modified()
-            .ok()?
-            .duration_since(std::time::UNIX_EPOCH)
-            .ok()
-            .map(|duration| duration.as_secs() as i64)
-    })
-    .max();
+    let newest_vault_mtime =
+        crate::indexer::walk_vault(vault_path, &config.exclude, config.respect_gitignore)?
+            .iter()
+            .filter_map(|path| {
+                std::fs::metadata(path)
+                    .ok()?
+                    .modified()
+                    .ok()?
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .ok()
+                    .map(|duration| duration.as_secs() as i64)
+            })
+            .max();
 
     match (latest_indexed_at, newest_vault_mtime) {
         (Some(indexed), Some(mtime)) if mtime > indexed => Ok(Some((indexed, mtime))),
@@ -1296,15 +1293,7 @@ mod tests {
 
         let store = Store::open_memory().unwrap();
         let file_id = store
-            .insert_file(
-                "note.md",
-                "hash",
-                0,
-                &[],
-                "abc123",
-                None,
-                None,
-            )
+            .insert_file("note.md", "hash", 0, &[], "abc123", None, None)
             .unwrap();
         store
             .conn()

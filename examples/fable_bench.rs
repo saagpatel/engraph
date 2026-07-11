@@ -198,8 +198,20 @@ fn main() -> anyhow::Result<()> {
 
             println!(
                 "{{\"query\":{:?},\"rep\":{},\"orch_us\":{},\"embed_us\":{},\"vec_us\":{},\"hydrate_us\":{},\"fts_us\":{},\"graph_us\":{},\"fuse_us\":{},\"e2e_us\":{},\"n_sem\":{},\"n_fts\":{},\"n_graph\":{},\"n_fused\":{},\"n_results\":{}}}",
-                query, rep, t_orch, t_embed, t_vec, t_hydrate, t_fts, t_graph, t_fuse, t_e2e,
-                semantic_results.len(), fts_results.len(), graph_results.len(), fused.len(),
+                query,
+                rep,
+                t_orch,
+                t_embed,
+                t_vec,
+                t_hydrate,
+                t_fts,
+                t_graph,
+                t_fuse,
+                t_e2e,
+                semantic_results.len(),
+                fts_results.len(),
+                graph_results.len(),
+                fused.len(),
                 output.results.len(),
             );
         }

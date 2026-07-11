@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{Connection, OptionalExtension, params};
 use std::collections::HashSet;
 use std::path::Path;
 
@@ -1451,9 +1451,9 @@ impl Store {
 
     /// Get a single folder's centroid and file count.
     pub fn get_folder_centroid(&self, folder: &str) -> Result<Option<(Vec<f32>, usize)>> {
-        let mut stmt = self
-            .conn
-            .prepare_cached("SELECT centroid, file_count FROM folder_centroids WHERE folder = ?1")?;
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT centroid, file_count FROM folder_centroids WHERE folder = ?1",
+        )?;
         let mut rows = stmt.query_map(params![folder], |row| {
             let blob: Vec<u8> = row.get(0)?;
             let count: i64 = row.get(1)?;
@@ -1775,9 +1775,7 @@ impl Store {
         let query_stem = query.strip_suffix(".md").unwrap_or(query).to_lowercase();
 
         // Collect all (path, basename_stem) pairs from the store.
-        let mut stmt = self
-            .conn
-            .prepare_cached("SELECT path FROM files")?;
+        let mut stmt = self.conn.prepare_cached("SELECT path FROM files")?;
         let paths: Vec<String> = stmt
             .query_map([], |row| row.get(0))?
             .filter_map(|r| r.ok())
