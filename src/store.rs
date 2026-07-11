@@ -406,7 +406,9 @@ impl Store {
     }
 
     pub fn get_meta(&self, key: &str) -> Result<Option<String>> {
-        let mut stmt = self.conn.prepare("SELECT value FROM meta WHERE key = ?1")?;
+        let mut stmt = self
+            .conn
+            .prepare_cached("SELECT value FROM meta WHERE key = ?1")?;
         let mut rows = stmt.query_map(params![key], |row| row.get::<_, String>(0))?;
         match rows.next() {
             Some(val) => Ok(Some(val?)),
@@ -430,7 +432,7 @@ impl Store {
     pub fn get_llm_cache(&self, query_hash: &str) -> Result<Option<String>> {
         let mut stmt = self
             .conn
-            .prepare("SELECT result FROM llm_cache WHERE query_hash = ?1")?;
+            .prepare_cached("SELECT result FROM llm_cache WHERE query_hash = ?1")?;
         let result = stmt
             .query_row(params![query_hash], |row| row.get::<_, String>(0))
             .optional()?;
@@ -474,7 +476,7 @@ impl Store {
     }
 
     pub fn get_file(&self, path: &str) -> Result<Option<FileRecord>> {
-        let mut stmt = self.conn.prepare(
+        let mut stmt = self.conn.prepare_cached(
             "SELECT id, path, content_hash, mtime, tags, indexed_at, docid, created_by, note_date FROM files WHERE path = ?1",
         )?;
         let mut rows = stmt.query_map(params![path], |row| {
@@ -497,7 +499,7 @@ impl Store {
     }
 
     pub fn get_all_files(&self) -> Result<Vec<FileRecord>> {
-        let mut stmt = self.conn.prepare(
+        let mut stmt = self.conn.prepare_cached(
             "SELECT id, path, content_hash, mtime, tags, indexed_at, docid, created_by, note_date FROM files",
         )?;
         let rows = stmt.query_map([], |row| {
@@ -585,7 +587,7 @@ impl Store {
     pub fn get_all_vectors(&self) -> Result<Vec<(u64, Vec<f32>)>> {
         let mut stmt = self
             .conn
-            .prepare("SELECT vector_id, vector FROM chunks WHERE vector IS NOT NULL")?;
+            .prepare_cached("SELECT vector_id, vector FROM chunks WHERE vector IS NOT NULL")?;
         let rows = stmt.query_map([], |row| {
             let vid: i64 = row.get(0)?;
             let blob: Vec<u8> = row.get(1)?;
@@ -603,7 +605,7 @@ impl Store {
     }
 
     pub fn get_chunks_by_file(&self, file_id: i64) -> Result<Vec<ChunkRecord>> {
-        let mut stmt = self.conn.prepare(
+        let mut stmt = self.conn.prepare_cached(
             "SELECT id, file_id, heading, snippet, vector_id, token_count
              FROM chunks WHERE file_id = ?1",
         )?;
@@ -625,7 +627,7 @@ impl Store {
     }
 
     pub fn get_chunk_by_vector_id(&self, vector_id: u64) -> Result<Option<ChunkRecord>> {
-        let mut stmt = self.conn.prepare(
+        let mut stmt = self.conn.prepare_cached(
             "SELECT id, file_id, heading, snippet, vector_id, token_count
              FROM chunks WHERE vector_id = ?1",
         )?;
@@ -659,7 +661,9 @@ impl Store {
     }
 
     pub fn get_tombstones(&self) -> Result<HashSet<u64>> {
-        let mut stmt = self.conn.prepare("SELECT vector_id FROM tombstones")?;
+        let mut stmt = self
+            .conn
+            .prepare_cached("SELECT vector_id FROM tombstones")?;
         let rows = stmt.query_map([], |row| Ok(row.get::<_, i64>(0)? as u64))?;
         let mut set = HashSet::new();
         for row in rows {
@@ -715,7 +719,7 @@ impl Store {
         let mut results = Vec::new();
         match edge_type {
             Some(et) => {
-                let mut stmt = self.conn.prepare(
+                let mut stmt = self.conn.prepare_cached(
                     "SELECT to_file, edge_type FROM edges WHERE from_file = ?1 AND edge_type = ?2",
                 )?;
                 let rows = stmt.query_map(params![file_id, et], |row| {
@@ -728,7 +732,7 @@ impl Store {
             None => {
                 let mut stmt = self
                     .conn
-                    .prepare("SELECT to_file, edge_type FROM edges WHERE from_file = ?1")?;
+                    .prepare_cached("SELECT to_file, edge_type FROM edges WHERE from_file = ?1")?;
                 let rows = stmt.query_map(params![file_id], |row| {
                     Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
                 })?;
@@ -749,7 +753,7 @@ impl Store {
         let mut results = Vec::new();
         match edge_type {
             Some(et) => {
-                let mut stmt = self.conn.prepare(
+                let mut stmt = self.conn.prepare_cached(
                     "SELECT from_file, edge_type FROM edges WHERE to_file = ?1 AND edge_type = ?2",
                 )?;
                 let rows = stmt.query_map(params![file_id, et], |row| {
@@ -762,7 +766,7 @@ impl Store {
             None => {
                 let mut stmt = self
                     .conn
-                    .prepare("SELECT from_file, edge_type FROM edges WHERE to_file = ?1")?;
+                    .prepare_cached("SELECT from_file, edge_type FROM edges WHERE to_file = ?1")?;
                 let rows = stmt.query_map(params![file_id], |row| {
                     Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
                 })?;
@@ -808,7 +812,9 @@ impl Store {
 
     /// Look up a file's path by its row ID.
     pub fn get_file_path_by_id(&self, file_id: i64) -> Result<Option<String>> {
-        let mut stmt = self.conn.prepare("SELECT path FROM files WHERE id = ?1")?;
+        let mut stmt = self
+            .conn
+            .prepare_cached("SELECT path FROM files WHERE id = ?1")?;
         let mut rows = stmt.query_map(params![file_id], |row| row.get::<_, String>(0))?;
         match rows.next() {
             Some(val) => Ok(Some(val?)),
@@ -818,7 +824,7 @@ impl Store {
 
     /// Look up a file record by its row ID.
     pub fn get_file_by_id(&self, file_id: i64) -> Result<Option<FileRecord>> {
-        let mut stmt = self.conn.prepare(
+        let mut stmt = self.conn.prepare_cached(
             "SELECT id, path, content_hash, mtime, tags, indexed_at, docid, created_by, note_date FROM files WHERE id = ?1",
         )?;
         let mut rows = stmt.query_map(params![file_id], |row| {
@@ -842,7 +848,7 @@ impl Store {
 
     /// Look up a file by its 6-character docid.
     pub fn get_file_by_docid(&self, docid: &str) -> Result<Option<FileRecord>> {
-        let mut stmt = self.conn.prepare(
+        let mut stmt = self.conn.prepare_cached(
             "SELECT id, path, content_hash, mtime, tags, indexed_at, docid, created_by, note_date FROM files WHERE docid = ?1",
         )?;
         let mut rows = stmt.query_map(params![docid], |row| {
@@ -910,7 +916,7 @@ impl Store {
         let escaped = query.replace('"', "\"\"");
         let fts_query = format!("\"{}\"", escaped);
 
-        let mut stmt = self.conn.prepare(
+        let mut stmt = self.conn.prepare_cached(
             "SELECT file_id, chunk_seq, bm25(chunks_fts) as score,
                     snippet(chunks_fts, 0, '<b>', '</b>', '...', 64)
              FROM chunks_fts
@@ -943,7 +949,7 @@ impl Store {
     pub fn get_vector_ids_for_file(&self, file_id: i64) -> Result<Vec<u64>> {
         let mut stmt = self
             .conn
-            .prepare("SELECT vector_id FROM chunks WHERE file_id = ?1")?;
+            .prepare_cached("SELECT vector_id FROM chunks WHERE file_id = ?1")?;
         let rows = stmt.query_map(params![file_id], |row| Ok(row.get::<_, i64>(0)? as u64))?;
         let mut ids = Vec::new();
         for row in rows {
@@ -987,7 +993,7 @@ impl Store {
 
     /// Find files that share at least one tag with the given file.
     pub fn get_shared_tags_files(&self, file_id: i64, limit: usize) -> Result<Vec<i64>> {
-        let mut stmt = self.conn.prepare(
+        let mut stmt = self.conn.prepare_cached(
             "SELECT DISTINCT f2.id
              FROM files f1
              JOIN files f2 ON f2.id != f1.id
@@ -1020,7 +1026,7 @@ impl Store {
 
     /// Get the best (highest token_count) chunk for a file.
     pub fn get_best_chunk_for_file(&self, file_id: i64) -> Result<Option<(String, String)>> {
-        let mut stmt = self.conn.prepare(
+        let mut stmt = self.conn.prepare_cached(
             "SELECT heading, snippet FROM chunks WHERE file_id = ?1 ORDER BY token_count DESC, id ASC LIMIT 1",
         )?;
         let mut rows = stmt.query_map(params![file_id], |row| {
@@ -1092,7 +1098,7 @@ impl Store {
         sql.push_str(" ORDER BY indexed_at DESC LIMIT ?");
         param_values.push(Box::new(limit as i64));
 
-        let mut stmt = self.conn.prepare(&sql)?;
+        let mut stmt = self.conn.prepare_cached(&sql)?;
         let rows = stmt.query_map(rusqlite::params_from_iter(param_values.iter()), |row| {
             Ok(FileRecord {
                 id: row.get(0)?,
@@ -1115,7 +1121,7 @@ impl Store {
 
     /// Top-level folder grouping with note counts.
     pub fn folder_note_counts(&self) -> Result<Vec<(String, usize)>> {
-        let mut stmt = self.conn.prepare(
+        let mut stmt = self.conn.prepare_cached(
             "SELECT CASE WHEN instr(path, '/') > 0
                     THEN substr(path, 1, instr(path, '/') - 1)
                     ELSE '(root)'
@@ -1135,7 +1141,7 @@ impl Store {
 
     /// Tag frequency aggregation via json_each.
     pub fn top_tags(&self, limit: usize) -> Result<Vec<(String, usize)>> {
-        let mut stmt = self.conn.prepare(
+        let mut stmt = self.conn.prepare_cached(
             "SELECT value, COUNT(*) as cnt
              FROM files, json_each(files.tags)
              GROUP BY value ORDER BY cnt DESC LIMIT ?",
@@ -1152,7 +1158,7 @@ impl Store {
 
     /// Most recently indexed files.
     pub fn recent_files(&self, limit: usize) -> Result<Vec<FileRecord>> {
-        let mut stmt = self.conn.prepare(
+        let mut stmt = self.conn.prepare_cached(
             "SELECT id, path, content_hash, mtime, tags, indexed_at, docid, created_by, note_date
              FROM files ORDER BY indexed_at DESC LIMIT ?",
         )?;
@@ -1204,7 +1210,7 @@ impl Store {
                 SELECT to_file AS fid FROM edges WHERE to_file IN ({ph})
             ) GROUP BY fid"
         );
-        let mut stmt = self.conn.prepare(&sql)?;
+        let mut stmt = self.conn.prepare_cached(&sql)?;
         let params: Vec<Box<dyn rusqlite::types::ToSql>> = file_ids
             .iter()
             .chain(file_ids.iter())
@@ -1223,7 +1229,7 @@ impl Store {
 
     /// Find all files whose path matches a LIKE pattern (e.g., "03-Resources/People/%").
     pub fn find_files_by_prefix(&self, pattern: &str) -> Result<Vec<FileRecord>> {
-        let mut stmt = self.conn.prepare(
+        let mut stmt = self.conn.prepare_cached(
             "SELECT id, path, content_hash, mtime, tags, indexed_at, docid, created_by, note_date
              FROM files WHERE path LIKE ?1",
         )?;
@@ -1275,7 +1281,7 @@ impl Store {
 
         // Try each candidate as a case-insensitive basename match.
         for candidate in &candidates {
-            let mut stmt = self.conn.prepare(
+            let mut stmt = self.conn.prepare_cached(
                 "SELECT id, path, content_hash, mtime, tags, indexed_at, docid, created_by, note_date
                  FROM files
                  WHERE lower(path) LIKE '%/' || lower(?1) OR lower(path) = lower(?1)
@@ -1304,7 +1310,7 @@ impl Store {
 
     /// Query files whose note_date falls within a given range (inclusive).
     pub fn get_files_in_date_range(&self, start: i64, end: i64) -> Result<Vec<FileRecord>> {
-        let mut stmt = self.conn.prepare(
+        let mut stmt = self.conn.prepare_cached(
             "SELECT id, path, content_hash, mtime, tags, indexed_at, docid, created_by, note_date
              FROM files WHERE note_date BETWEEN ?1 AND ?2
              ORDER BY note_date ASC",
@@ -1480,7 +1486,7 @@ impl Store {
     pub fn get_folder_centroids(&self) -> Result<Vec<(String, Vec<f32>)>> {
         let mut stmt = self
             .conn
-            .prepare("SELECT folder, centroid FROM folder_centroids")?;
+            .prepare_cached("SELECT folder, centroid FROM folder_centroids")?;
         let rows = stmt.query_map([], |row| {
             let folder: String = row.get(0)?;
             let blob: Vec<u8> = row.get(1)?;
@@ -1501,7 +1507,7 @@ impl Store {
     pub fn get_folder_centroid(&self, folder: &str) -> Result<Option<(Vec<f32>, usize)>> {
         let mut stmt = self
             .conn
-            .prepare("SELECT centroid, file_count FROM folder_centroids WHERE folder = ?1")?;
+            .prepare_cached("SELECT centroid, file_count FROM folder_centroids WHERE folder = ?1")?;
         let mut rows = stmt.query_map(params![folder], |row| {
             let blob: Vec<u8> = row.get(0)?;
             let count: i64 = row.get(1)?;
@@ -1571,7 +1577,7 @@ impl Store {
 
     /// Retrieve all chunk vectors for a given file, ordered by chunk id.
     pub fn get_chunk_vectors_for_file(&self, file_id: i64) -> Result<Vec<Vec<f32>>> {
-        let mut stmt = self.conn.prepare(
+        let mut stmt = self.conn.prepare_cached(
             "SELECT vector FROM chunks WHERE file_id = ?1 AND vector IS NOT NULL ORDER BY id",
         )?;
         let rows = stmt.query_map(params![file_id], |row| {
@@ -1618,7 +1624,7 @@ impl Store {
 
     /// Get recent placement corrections, latest first.
     pub fn get_placement_corrections(&self, limit: usize) -> Result<Vec<PlacementCorrection>> {
-        let mut stmt = self.conn.prepare(
+        let mut stmt = self.conn.prepare_cached(
             "SELECT id, file_path, suggested_folder, actual_folder, corrected_at
              FROM placement_corrections ORDER BY id DESC LIMIT ?1",
         )?;
@@ -1659,7 +1665,7 @@ impl Store {
 
     /// Retrieve all entries for a migration, ordered by insertion order.
     pub fn get_migration(&self, migration_id: &str) -> Result<Vec<MigrationEntry>> {
-        let mut stmt = self.conn.prepare(
+        let mut stmt = self.conn.prepare_cached(
             "SELECT id, migration_id, old_path, new_path, category, confidence, migrated_at
              FROM migration_log WHERE migration_id = ?1 ORDER BY id ASC",
         )?;
@@ -1721,7 +1727,7 @@ impl Store {
     }
 
     pub fn get_identity_facts(&self, tier: i64) -> Result<Vec<IdentityFact>> {
-        let mut stmt = self.conn.prepare(
+        let mut stmt = self.conn.prepare_cached(
             "SELECT id, tier, key, value, source, updated_at
              FROM identity_facts WHERE tier = ?1 ORDER BY key, value",
         )?;
@@ -1761,7 +1767,7 @@ impl Store {
 
     /// Tags created by agents (not by indexer).
     pub fn agent_created_tags(&self) -> Result<Vec<(String, String, i64)>> {
-        let mut stmt = self.conn.prepare(
+        let mut stmt = self.conn.prepare_cached(
             "SELECT name, created_by, usage_count FROM tag_registry WHERE created_by != 'indexer' ORDER BY usage_count DESC",
         )?;
         let rows = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?;
@@ -1770,7 +1776,7 @@ impl Store {
 
     /// Tags used fewer than N times (cleanup candidates).
     pub fn low_usage_tags(&self, max_count: i64) -> Result<Vec<(String, i64)>> {
-        let mut stmt = self.conn.prepare(
+        let mut stmt = self.conn.prepare_cached(
             "SELECT name, usage_count FROM tag_registry WHERE usage_count < ?1 ORDER BY usage_count",
         )?;
         let rows = stmt.query_map(params![max_count], |row| Ok((row.get(0)?, row.get(1)?)))?;
@@ -1779,7 +1785,7 @@ impl Store {
 
     /// Tags unused for more than N days.
     pub fn stale_tags(&self, days: i64) -> Result<Vec<(String, String)>> {
-        let mut stmt = self.conn.prepare(
+        let mut stmt = self.conn.prepare_cached(
             "SELECT name, last_used FROM tag_registry WHERE last_used IS NOT NULL AND julianday('now') - julianday(last_used) > ?1 ORDER BY last_used",
         )?;
         let rows = stmt.query_map(params![days], |row| Ok((row.get(0)?, row.get(1)?)))?;
@@ -1823,7 +1829,9 @@ impl Store {
         let query_stem = query.strip_suffix(".md").unwrap_or(query).to_lowercase();
 
         // Collect all (path, basename_stem) pairs from the store.
-        let mut stmt = self.conn.prepare("SELECT path FROM files")?;
+        let mut stmt = self
+            .conn
+            .prepare_cached("SELECT path FROM files")?;
         let paths: Vec<String> = stmt
             .query_map([], |row| row.get(0))?
             .filter_map(|r| r.ok())
@@ -1898,7 +1906,7 @@ impl Store {
 
     /// Get CLI events since a given ISO-8601 date string (e.g., "2020-01-01").
     pub fn get_cli_events_since(&self, since: &str) -> Result<Vec<CliEvent>> {
-        let mut stmt = self.conn.prepare(
+        let mut stmt = self.conn.prepare_cached(
             "SELECT id, timestamp, operation, outcome, detail
              FROM cli_events WHERE timestamp >= ?1 ORDER BY timestamp DESC",
         )?;
@@ -2005,7 +2013,7 @@ impl Store {
     pub fn find_isolated_files(&self, exclude_prefixes: &[&str]) -> Result<Vec<FileRecord>> {
         let all_files = self.get_all_files()?;
         let connected: HashSet<i64> = {
-            let mut stmt = self.conn.prepare(
+            let mut stmt = self.conn.prepare_cached(
                 "SELECT DISTINCT id FROM files WHERE id IN \
                  (SELECT from_file FROM edges UNION SELECT to_file FROM edges)",
             )?;
