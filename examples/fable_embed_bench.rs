@@ -24,7 +24,10 @@ fn main() -> anyhow::Result<()> {
         models_dir.join("ggml-org--embeddinggemma-300M-GGUF--embeddinggemma-300M-Q8_0.gguf");
     let backend = llama_backend()?;
     let t = Instant::now();
-    let n_gpu: u32 = std::env::var("FABLE_N_GPU_LAYERS").ok().and_then(|v| v.parse().ok()).unwrap_or(999);
+    let n_gpu: u32 = std::env::var("FABLE_N_GPU_LAYERS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(999);
     let model_params = LlamaModelParams::default().with_n_gpu_layers(n_gpu);
     let model = LlamaModel::load_from_file(backend, &model_path, &model_params)
         .map_err(|e| anyhow::anyhow!("{e}"))?;
@@ -36,10 +39,15 @@ fn main() -> anyhow::Result<()> {
     let n_tokens = tokens.len() as u32;
     eprintln!("n_tokens={n_tokens}");
 
-    let sleep_ms: u64 = std::env::var("FABLE_SLEEP_MS").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
+    let sleep_ms: u64 = std::env::var("FABLE_SLEEP_MS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
     // Phase-split runs, fresh context each time (current engraph behavior)
     for rep in 0..repeats {
-        if sleep_ms > 0 { std::thread::sleep(std::time::Duration::from_millis(sleep_ms)); }
+        if sleep_ms > 0 {
+            std::thread::sleep(std::time::Duration::from_millis(sleep_ms));
+        }
         let t = Instant::now();
         let ctx_params = LlamaContextParams::default()
             .with_embeddings(true)

@@ -23,24 +23,12 @@ fn fixture_store() -> Store {
             "retrieval ranking operations",
             "retrieval ranking",
         ),
-        (
-            "notes/gamma.md",
-            "unrelated gardening notes",
-            "unrelated",
-        ),
+        ("notes/gamma.md", "unrelated gardening notes", "unrelated"),
     ];
 
     for (path, snippet, vector_seed) in documents {
         let file_id = store
-            .insert_file(
-                path,
-                path,
-                0,
-                &[],
-                &generate_docid(path),
-                None,
-                None,
-            )
+            .insert_file(path, path, 0, &[], &generate_docid(path), None, None)
             .unwrap();
         let vector_id = store.next_vector_id().unwrap();
         let vector = embedder.hash_to_vector(vector_seed);
