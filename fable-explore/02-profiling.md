@@ -116,7 +116,20 @@ session, ~8 read-only from Codex) pays this at spawn, plus Finding 1's 1.2s
 network dance, plus a startup reconciliation walk. Every CLI `engraph search`
 pays it too.
 
-## Finding 6 (architecture, confirmed in source; lab measurement pending) —
+## Finding 7 — a full reindex runs at 5.6% CPU utilization
+
+Full `index --rebuild` of the lab copy (314 files, 11,251 chunks), new binary
+with the shared-context fix: **1998s wall / 114s user CPU = 5.6% utilization**.
+The unpatched binary was killed at 1564s wall / 114.7s CPU, still embedding,
+zero rows written (it buffers all embeddings and writes at the end — so a
+45-minute job also gives no progress signal and no partial result). Under this
+machine's ambient GPU load the old-vs-new *wall* race is inconclusive (both are
+Metal-sync-bound); the controlled evidence for the shared-context fix is the
+32-chunk parity bench (1442→945ms) and quiet-machine micro-bench (25ms→11ms
+per embed). The 94%-waiting number is the case for true multi-sequence
+batching (P6): one GPU sync per 64 chunks instead of one per chunk.
+
+## Finding 6 (confirmed in source AND lab) —
 read-only servers run writable watchers
 
 `run_serve` spawns the file watcher unconditionally (serve.rs:1079);
@@ -126,7 +139,14 @@ mutexes** (watcher.rs:46-60) — MCP tool calls block behind it. Every vault
 file save wakes N watchers; each re-chunks, re-embeds, and re-writes the
 shared SQLite DB (busy_timeout=5s). N-way duplicated embedding work + write
 lock storms; matches the historically observed err-517 SQLITE_BUSY_SNAPSHOT.
-Fleet multiplication experiment to be run in the isolated lab.
+
+**Lab experiment (before fix):** 4 read-only servers, one file save → 4
+independent "indexed changed file" passes (chunk + 5 embeds + write + edge
+rebuild, per server), racing on one SQLite DB; the 5s busy_timeout silently
+absorbed the contention at N=4. **After the fix (commit c6fc677):** 2
+read-only + 1 writable server, one save → read-only logs show "watcher not
+started" and zero index activity; exactly one index pass total, from the
+writable server.
 
 ## What this rules OUT
 
