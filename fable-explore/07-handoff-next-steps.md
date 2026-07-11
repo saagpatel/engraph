@@ -95,6 +95,8 @@ accept only if read-only servers are expected to rely on a separate writable
 indexer when the warning appears. `Store::open` still uses the normal migration
 path, so this is a semantic no-self-healing decision, not a claim that every
 legacy-database startup byte is opened read-only.
+Disposition: defer P1 pending explicit operator acceptance; no live semantic
+acceptance or binary swap was performed.
 
 ## T5 — quality items Q4/Q5/Q6 (mechanical)
 
