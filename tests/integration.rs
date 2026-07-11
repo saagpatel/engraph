@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use engraph::config::Config;
 use engraph::indexer::run_index_shared;
-use engraph::llm::MockLlm;
+use engraph::llm::{MockLlm, ModelDefaults};
 use engraph::search::search_internal;
 use engraph::store::Store;
 use tempfile::TempDir;
@@ -76,6 +76,14 @@ fn full_index_is_searchable() {
 
     assert_eq!(indexed.new_files, 4);
     assert_eq!(harness.store.stats().unwrap().file_count, 4);
+    assert_eq!(
+        harness.store.get_meta("embedding_model_uri").unwrap(),
+        Some(ModelDefaults::default().embed_uri)
+    );
+    assert_eq!(
+        harness.store.get_meta("embedding_dim").unwrap().as_deref(),
+        Some("256")
+    );
 
     let results = search_internal(
         "Rust error handling",
