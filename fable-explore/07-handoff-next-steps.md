@@ -50,6 +50,15 @@ The harness process exited zero despite the numeric mismatch, so the stated
 `max_abs_diff <= 1e-6` acceptance criterion is authoritative. The unaccepted
 T1 source changes were reverted again; no T1 implementation commit was made.
 
+**2026-07-11 diagnostic matrix.** The reverted sequential control remained
+bit-identical at every width (`n=1,2,4,8,16,32`) on both Metal and CPU
+(`max_abs_diff=0e0`). The temporary true packed implementation diverged at
+`n=2` on Metal (`1.8407404e-4`) and reached `2.7627777e-4` at `n=32`; CPU was
+worse, reaching `1.2322059e-2` at `n=32`. This makes a Metal-only explanation
+unlikely: the installed llama.cpp encoder's multi-sequence path itself has
+different numerical behavior. The packed implementation and diagnostic knobs
+were reverted; T1 remains blocked without changing the `1e-6` gate.
+
 ## T2 — P2: in-memory vector scan for serve (medium)
 
 Spec: on serve startup, load (vector_id, embedding) for all chunks into a
