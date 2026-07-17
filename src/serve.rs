@@ -1046,10 +1046,11 @@ pub async fn run_serve(
     let store = Store::open(&db_path)?;
     let config = Config::load()?;
     // P3: the actor owns model + ONE reused llama.cpp context on its own thread.
-    // Every query through `LlamaEmbed` pays ~5.5ms of Metal pipeline setup to
-    // build a context it then throws away; serve is long-lived, so it pays that
-    // on every single query. Measured 1.67x on the query path, bit-identical
-    // output. See fable-explore/14-p3-embed-actor.md.
+    // The baseline creates a context per query; serve is long-lived, so the
+    // actor retains one context. Deterministic parity gates cover correctness.
+    // Historical timing suggested a benefit, but the exact 1.67x ratio lacks a
+    // complete receipt and is not a durable performance claim. See
+    // research-evidence/historical-claims.json.
     let embedder = crate::llm::EmbedActor::new(&models_dir, &config)?;
 
     let vault_path_str = store.get_meta("vault_path")?.ok_or_else(|| {

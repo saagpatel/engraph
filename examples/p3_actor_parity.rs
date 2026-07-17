@@ -76,21 +76,64 @@ const QUERIES: &[&str] = &[
     "what is reciprocal rank fusion",
 ];
 
-fn max_abs_diff(a: &[Vec<f32>], b: &[Vec<f32>]) -> f32 {
-    a.iter()
-        .zip(b.iter())
-        .map(|(x, y)| {
-            x.iter()
-                .zip(y.iter())
-                .map(|(p, q)| (p - q).abs())
-                .fold(0f32, f32::max)
-        })
-        .fold(0f32, f32::max)
+fn exact_max_abs_diff(a: &[Vec<f32>], b: &[Vec<f32>]) -> anyhow::Result<f32> {
+    anyhow::ensure!(a.len() == b.len(), "vector count mismatch");
+    let mut max_diff = 0.0f32;
+    for (index, (left, right)) in a.iter().zip(b).enumerate() {
+        anyhow::ensure!(
+            left.len() == right.len(),
+            "dimension mismatch at vector {index}"
+        );
+        for (dimension, (&p, &q)) in left.iter().zip(right).enumerate() {
+            anyhow::ensure!(
+                p.is_finite() && q.is_finite(),
+                "non-finite value at vector {index}, dimension {dimension}"
+            );
+            max_diff = max_diff.max((p - q).abs());
+            anyhow::ensure!(
+                p.to_bits() == q.to_bits(),
+                "bit mismatch at vector {index}, dimension {dimension}"
+            );
+        }
+    }
+    Ok(max_diff)
+}
+
+fn finite_max_abs_diff(a: &[Vec<f32>], b: &[Vec<f32>]) -> anyhow::Result<f32> {
+    anyhow::ensure!(a.len() == b.len(), "vector count mismatch");
+    let mut max_diff = 0.0f32;
+    for (index, (left, right)) in a.iter().zip(b).enumerate() {
+        anyhow::ensure!(
+            left.len() == right.len(),
+            "dimension mismatch at vector {index}"
+        );
+        for (dimension, (&p, &q)) in left.iter().zip(right).enumerate() {
+            anyhow::ensure!(
+                p.is_finite() && q.is_finite(),
+                "non-finite value at vector {index}, dimension {dimension}"
+            );
+            max_diff = max_diff.max((p - q).abs());
+        }
+    }
+    Ok(max_diff)
 }
 
 fn median(mut v: Vec<f64>) -> f64 {
     v.sort_by(f64::total_cmp);
     v[v.len() / 2]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::exact_max_abs_diff;
+
+    #[test]
+    fn exact_parity_rejects_shape_and_bit_false_passes() {
+        assert!(exact_max_abs_diff(&[vec![1.0]], &[vec![1.0], vec![2.0]]).is_err());
+        assert!(exact_max_abs_diff(&[vec![1.0]], &[vec![1.0, 2.0]]).is_err());
+        assert!(exact_max_abs_diff(&[vec![f32::NAN]], &[vec![f32::NAN]]).is_err());
+        assert!(exact_max_abs_diff(&[vec![0.0]], &[vec![-0.0]]).is_err());
+    }
 }
 
 fn main() -> anyhow::Result<()> {
@@ -144,26 +187,24 @@ fn main() -> anyhow::Result<()> {
         let refs: Vec<&str> = t.iter().map(|s| s.as_str()).collect();
         let b = base.embed_batch(&refs)?;
         let a = actor.embed_batch(&refs)?;
-        let d = max_abs_diff(&a, &b);
+        let d = exact_max_abs_diff(&a, &b)?;
         println!(
             "{{\"gate\":\"doc_parity\",\"words\":{words},\"max_abs_diff\":{d:e},\
              \"bit_identical\":{}}}",
             d == 0.0
         );
-        anyhow::ensure!(d == 0.0, "document path diverged at words={words}: {d:e}");
     }
 
     // ── Gate 2: query path parity (format_query, separate actor variant) ────
     for q in QUERIES {
         let b = vec![base.embed_one(q)?];
         let a = vec![actor.embed_one(q)?];
-        let d = max_abs_diff(&a, &b);
+        let d = exact_max_abs_diff(&a, &b)?;
         println!(
             "{{\"gate\":\"query_parity\",\"query\":\"{q}\",\"max_abs_diff\":{d:e},\
              \"bit_identical\":{}}}",
             d == 0.0
         );
-        anyhow::ensure!(d == 0.0, "query path diverged: {d:e}");
     }
 
     // ── Gate 3: a query must NOT equal the same text embedded as a document ─
@@ -173,7 +214,7 @@ fn main() -> anyhow::Result<()> {
     let q = QUERIES[0];
     let as_query = vec![actor.embed_one(q)?];
     let as_doc = actor.embed_batch(&[q])?;
-    let fmt_delta = max_abs_diff(&as_query, &as_doc);
+    let fmt_delta = finite_max_abs_diff(&as_query, &as_doc)?;
     println!(
         "{{\"gate\":\"prompt_format_distinct\",\"query_vs_document_diff\":{fmt_delta:e},\
          \"formats_differ\":{}}}",
