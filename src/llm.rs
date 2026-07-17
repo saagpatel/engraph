@@ -922,7 +922,9 @@ pub struct EmbedActor {
 
 impl std::fmt::Debug for EmbedActor {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("EmbedActor").field("dim", &self.dim).finish()
+        f.debug_struct("EmbedActor")
+            .field("dim", &self.dim)
+            .finish()
     }
 }
 
