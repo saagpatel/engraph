@@ -3,7 +3,10 @@
 //!
 //! The audit put P3's ceiling at ~1.8× on the query path (~6.8ms reused vs
 //! 12.3ms fresh) by reasoning from shared-context batch encodes. That was a
-//! BOUND, not a measurement. This is the measurement.
+//! BOUND, not a measurement. This executable can collect a measurement, but the
+//! tracked 2026-07-17 receipt ran parity with timing disabled. It therefore
+//! supports correctness only; the historical 1.67× performance claim remains
+//! unverified until a separately controlled performance receipt exists.
 //!
 //! Parity is checked first and is the gate: a faster embedder that returns
 //! different vectors is not an optimization, it is a silent index corruption.

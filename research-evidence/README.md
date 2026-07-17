@@ -15,6 +15,19 @@ whose official LFS metadata matches that exact object hash, not mutable
 model/base-model identity, tokenizer identity, declared license evidence, and
 explicit non-conclusions.
 
+Callers that must prove zero-network behavior use
+`ensure_model_with_policy(..., ModelAcquisitionPolicy::CacheOnly)`. A cache miss
+fails before directory creation or HTTP. The normal application path explicitly
+uses `AllowDownload`; neither policy weakens manifest or byte verification.
+
+`models/model-source-receipts-v1.json` preserves compact projections of official
+Hugging Face revision and LFS-object metadata plus digests or explicit UNKNOWNs
+for license evidence observed on 2026-07-17. The offline verifier
+`scripts/verify_model_provenance.py` checks manifest uniqueness, immutable
+revision shape, projection digests, cross-links, and non-conclusion fields. The
+source pages were not archived, quantizer notice completeness is UNKNOWN, and
+these records do not establish consent or legal reuse.
+
 Existing legacy cache entries are accepted only after byte verification. If they
 predate acquisition receipts, their acquisition time remains `UNKNOWN`. The
 default tokenizer comes from the hash-bound GGUF. External tokenizers require
@@ -56,9 +69,12 @@ captured pre/post inputs match within one attempt. It is not a replication
 claim. Post-hoc `create` receipts remain `incomparable` or variant evidence.
 The terminal gate rechecks that the commit and worktree stayed unchanged,
 excluding only the unique plan and raw-output files created by the runner.
-`audit-plans` scans an evidence directory for planned attempts without a
-matching terminal result; incomplete work is surfaced as failure rather than
-silently omitted.
+`audit-plans` scans an evidence directory for planned attempts. It distinguishes
+an absent terminal result (`INCOMPLETE_NO_TERMINAL_RESULT`) from a preserved
+terminal receipt that no longer verifies against the current checkout
+(`TERMINAL_RESULT_INVALID`). Duplicate plan or terminal IDs are explicit
+`AMBIGUOUS_DUPLICATE_*` failures rather than last-path-wins; none of these
+conditions is silently converted to a pass.
 
 Receipts contain a canonical self-digest for accidental corruption detection.
 The digest is stored beside editable metadata and is not authentication. They
@@ -80,3 +96,10 @@ for this evidence directory.
 The tool does not grant authority to run costly commands. Model downloads,
 expensive benchmarks, and external workloads still require the applicable
 operator approval.
+
+## Cross-repository schema boundary
+
+`research-evidence/schema-lineage-v1.json` records that Engraph and OPERANT
+currently publish different contracts under the same schema identifier. The
+contracts are not treated as one schema, and neither historical receipt is
+rewritten. Cross-repository convergence remains `REVIEW_REQUIRED_CROSS_REPO`.

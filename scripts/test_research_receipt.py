@@ -497,7 +497,46 @@ class ReceiptTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            self.assertEqual(len(rr.incomplete_attempts(root)), 1)
+            issues = rr.incomplete_attempts(root)
+            self.assertEqual(len(issues), 1)
+            self.assertEqual(issues[0]["status"], "TERMINAL_RESULT_INVALID")
+            self.assertEqual(
+                issues[0]["terminal"],
+                (root / "forged-result.json").relative_to(rr.ROOT).as_posix(),
+            )
+            self.assertTrue(issues[0]["errors"])
+
+    def test_attempt_inventory_rejects_duplicate_ids(self) -> None:
+        with tempfile.TemporaryDirectory(dir=rr.ROOT) as tmp:
+            root = Path(tmp)
+            for name in ("plan-a.json", "plan-b.json"):
+                (root / name).write_text(
+                    json.dumps(
+                        {
+                            "record_type": "attempt_planned",
+                            "attempt_id": "duplicate-attempt",
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+            issues = rr.incomplete_attempts(root)
+            self.assertEqual(issues[0]["status"], "AMBIGUOUS_DUPLICATE_PLAN")
+            self.assertEqual(len(issues[0]["plans"]), 2)
+
+            (root / "plan-b.json").unlink()
+            for name in ("result-a.json", "result-b.json"):
+                (root / name).write_text(
+                    json.dumps(
+                        {
+                            "record_type": "attempt_result",
+                            "attempt_id": "duplicate-attempt",
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+            issues = rr.incomplete_attempts(root)
+            self.assertEqual(issues[0]["status"], "AMBIGUOUS_DUPLICATE_TERMINAL")
+            self.assertEqual(len(issues[0]["terminals"]), 2)
 
 
 if __name__ == "__main__":

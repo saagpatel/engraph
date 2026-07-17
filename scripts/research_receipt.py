@@ -1092,14 +1092,14 @@ def run_measured(args: argparse.Namespace) -> dict[str, Any]:
     return create_receipt(args)
 
 
-def incomplete_attempts(directory: Path) -> list[dict[str, str]]:
+def incomplete_attempts(directory: Path) -> list[dict[str, Any]]:
     resolved = directory.resolve()
     try:
         resolved.relative_to(ROOT)
     except ValueError as exc:
         raise ValueError("attempt directory must be inside repository") from exc
-    planned: dict[str, Path] = {}
-    terminal: set[str] = set()
+    planned: dict[str, list[Path]] = {}
+    terminal: dict[str, list[tuple[Path, list[str]]]] = {}
     for path in sorted(resolved.rglob("*.json")):
         try:
             value = json.loads(path.read_text(encoding="utf-8"))
@@ -1109,21 +1109,57 @@ def incomplete_attempts(directory: Path) -> list[dict[str, str]]:
         if not isinstance(attempt_id, str):
             continue
         if value.get("record_type") == "attempt_planned":
-            planned[attempt_id] = path
-        elif (
-            value.get("record_type") == "attempt_result"
-            and not verify_receipt(path)
-        ):
-            terminal.add(attempt_id)
-    return [
-        {
-            "attempt_id": attempt_id,
-            "plan": path.relative_to(ROOT).as_posix(),
-            "status": "INCOMPLETE_NO_TERMINAL_RESULT",
-        }
-        for attempt_id, path in sorted(planned.items())
-        if attempt_id not in terminal
-    ]
+            planned.setdefault(attempt_id, []).append(path)
+        elif value.get("record_type") == "attempt_result":
+            terminal.setdefault(attempt_id, []).append((path, verify_receipt(path)))
+    issues = []
+    for attempt_id, plan_paths in sorted(planned.items()):
+        if len(plan_paths) != 1:
+            issues.append(
+                {
+                    "attempt_id": attempt_id,
+                    "plans": [
+                        path.relative_to(ROOT).as_posix() for path in plan_paths
+                    ],
+                    "status": "AMBIGUOUS_DUPLICATE_PLAN",
+                }
+            )
+            continue
+        plan_path = plan_paths[0]
+        results = terminal.get(attempt_id, [])
+        if not results:
+            issues.append(
+                {
+                    "attempt_id": attempt_id,
+                    "plan": plan_path.relative_to(ROOT).as_posix(),
+                    "status": "INCOMPLETE_NO_TERMINAL_RESULT",
+                }
+            )
+            continue
+        if len(results) != 1:
+            issues.append(
+                {
+                    "attempt_id": attempt_id,
+                    "plan": plan_path.relative_to(ROOT).as_posix(),
+                    "terminals": [
+                        path.relative_to(ROOT).as_posix() for path, _ in results
+                    ],
+                    "status": "AMBIGUOUS_DUPLICATE_TERMINAL",
+                }
+            )
+            continue
+        terminal_path, errors = results[0]
+        if errors:
+            issues.append(
+                {
+                    "attempt_id": attempt_id,
+                    "plan": plan_path.relative_to(ROOT).as_posix(),
+                    "terminal": terminal_path.relative_to(ROOT).as_posix(),
+                    "status": "TERMINAL_RESULT_INVALID",
+                    "errors": errors,
+                }
+            )
+    return issues
 
 
 def main() -> None:
@@ -1202,9 +1238,9 @@ def main() -> None:
             raise SystemExit("\n".join(errors))
         print("OK")
     else:
-        incomplete = incomplete_attempts(args.directory)
-        print(json.dumps(incomplete, indent=2, sort_keys=True))
-        if incomplete:
+        issues = incomplete_attempts(args.directory)
+        print(json.dumps(issues, indent=2, sort_keys=True))
+        if issues:
             raise SystemExit(1)
 
 
