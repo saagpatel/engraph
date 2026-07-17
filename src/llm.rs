@@ -1,5 +1,6 @@
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::sync::mpsc;
 use std::sync::{Mutex, OnceLock};
 
 use anyhow::{Context as _, Result, bail};
@@ -731,13 +732,23 @@ impl LlamaEmbed {
 
     /// Create an embeddings context that can encode sequences up to `max_tokens`.
     /// n_ubatch must be >= n_tokens for the encoder, and n_ctx must fit all tokens.
+    ///
+    /// P3 diagnostic: `ENGRAPH_P3_NCTX=<n>` sizes the context to a fixed `n`
+    /// instead of to the input. P3 (a reused context owned by an actor thread)
+    /// can only work if a fixed size is numerically identical to a fitted one —
+    /// this knob exists to prove that before the actor is built. Unset, the
+    /// path is byte-for-byte the original.
     fn make_context(&self, max_tokens: u32) -> Result<llama_cpp_2::context::LlamaContext<'_>> {
-        let n_ctx = std::num::NonZeroU32::new(max_tokens.max(64) + 16);
+        let fixed = std::env::var("ENGRAPH_P3_NCTX")
+            .ok()
+            .and_then(|v| v.parse::<u32>().ok());
+        let sized = fixed.unwrap_or(max_tokens);
+        let n_ctx = std::num::NonZeroU32::new(sized.max(64) + 16);
         let ctx_params = LlamaContextParams::default()
             .with_embeddings(true)
             .with_n_ctx(n_ctx)
-            .with_n_ubatch(max_tokens.max(512))
-            .with_n_batch(max_tokens.max(512));
+            .with_n_ubatch(sized.max(512))
+            .with_n_batch(sized.max(512));
         self.model
             .new_context(llama_backend()?, ctx_params)
             .map_err(|e| anyhow::anyhow!("creating embedding context: {e}"))
@@ -793,6 +804,46 @@ impl LlamaEmbed {
         let mut ctx = self.make_context(tokens.len() as u32)?;
         self.encode_tokens(&mut ctx, &tokens)
     }
+
+    /// Encode through a caller-supplied context, falling back to a one-off
+    /// context for inputs larger than `ctx_cap`.
+    ///
+    /// The fallback is not optional: the encoder asserts `n_ubatch >= n_tokens`
+    /// (llama-context.cpp:1204), so a sequence longer than the shared context
+    /// was sized for would abort the process rather than return an error.
+    /// Chunks are capped at 512 *words* (writer.rs), which is normally well
+    /// under `ctx_cap` tokens — but word-to-token ratio is content-dependent, so
+    /// the overflow path is reachable with dense text.
+    fn encode_in(
+        &self,
+        ctx: &mut llama_cpp_2::context::LlamaContext<'_>,
+        ctx_cap: u32,
+        tokens: &[llama_cpp_2::token::LlamaToken],
+    ) -> Result<Vec<f32>> {
+        if tokens.len() as u32 > ctx_cap {
+            let mut oversized = self.make_context(tokens.len() as u32)?;
+            return self.encode_tokens(&mut oversized, tokens);
+        }
+        self.encode_tokens(ctx, tokens)
+    }
+
+    /// Document-format batch encode through a caller-supplied context.
+    /// Mirrors `<LlamaEmbed as EmbedModel>::embed_batch` exactly, minus the
+    /// per-call context construction.
+    fn embed_batch_in(
+        &self,
+        ctx: &mut llama_cpp_2::context::LlamaContext<'_>,
+        ctx_cap: u32,
+        texts: &[String],
+    ) -> Result<Vec<Vec<f32>>> {
+        let mut out = Vec::with_capacity(texts.len());
+        for text in texts {
+            let formatted = self.prompt_format.format_document("", text);
+            let tokens = self.tokenize(&formatted)?;
+            out.push(self.encode_in(ctx, ctx_cap, &tokens)?);
+        }
+        Ok(out)
+    }
 }
 
 impl EmbedModel for LlamaEmbed {
@@ -827,6 +878,195 @@ impl EmbedModel for LlamaEmbed {
 
     fn token_count(&self, text: &str) -> usize {
         self.tokenizer.token_count(text)
+    }
+
+    fn dim(&self) -> usize {
+        self.dim
+    }
+}
+
+// ── P3: reused-context embed actor ───────────────────────────────────────────
+
+/// Work sent to the embed actor thread.
+enum EmbedRequest {
+    /// Document-format batch — the indexing path.
+    Batch(Vec<String>, mpsc::Sender<Result<Vec<Vec<f32>>>>),
+    /// Query-format single encode — the search path.
+    ///
+    /// Deliberately NOT folded into `Batch`. `LlamaEmbed` applies
+    /// `format_query` here and `format_document` there; embeddinggemma is
+    /// asymmetric, so routing a query through the batch path would embed it as
+    /// a document and silently degrade retrieval rather than fail.
+    One(String, mpsc::Sender<Result<Vec<f32>>>),
+    TokenCount(String, mpsc::Sender<usize>),
+}
+
+/// An embed backend that owns the model and ONE llama.cpp context on a
+/// dedicated thread, reusing that context for every call (proposal P3).
+///
+/// `LlamaContext` is `!Send`, which is why [`LlamaEmbed`] builds one per call.
+/// Confining it to a single owning thread makes reuse possible: it removes the
+/// ~5.5ms of Metal pipeline setup each call otherwise pays, and serializes GPU
+/// submissions so concurrent callers stop churning the queue.
+///
+/// Numerically identical to [`LlamaEmbed`], on two verified legs: context
+/// *reuse* is bitwise-checked by `fable_batch_parity` (max_abs_diff 0.0), and
+/// fixed context *sizing* by `examples/p3_nctx_parity.rs` (0e0 across 7-601
+/// token inputs). See `fable-explore/11-perf-claims-audit.md`.
+pub struct EmbedActor {
+    /// `None` only during `Drop`, where it is taken to close the channel.
+    tx: Option<mpsc::Sender<EmbedRequest>>,
+    handle: Option<std::thread::JoinHandle<()>>,
+    dim: usize,
+}
+
+impl std::fmt::Debug for EmbedActor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EmbedActor").field("dim", &self.dim).finish()
+    }
+}
+
+impl EmbedActor {
+    /// Spawn the actor and block until the model is loaded and the context
+    /// built, so construction fails here rather than on first query.
+    pub fn new(models_dir: &Path, config: &crate::config::Config) -> Result<Self> {
+        let (tx, rx) = mpsc::channel();
+        let (ready_tx, ready_rx) = mpsc::channel();
+        let models_dir = models_dir.to_path_buf();
+        let config = config.clone();
+
+        let handle = std::thread::Builder::new()
+            .name("engraph-embed".into())
+            .spawn(move || embed_actor_loop(models_dir, config, ready_tx, rx))
+            .context("spawning embed actor thread")?;
+
+        // The actor sends exactly one readiness message; a RecvError means it
+        // panicked before reporting, which must surface as a load failure.
+        let dim = ready_rx
+            .recv()
+            .context("embed actor thread died during startup")??;
+
+        Ok(Self {
+            tx: Some(tx),
+            handle: Some(handle),
+            dim,
+        })
+    }
+
+    fn send(&self, req: EmbedRequest) -> Result<()> {
+        self.tx
+            .as_ref()
+            .context("embed actor is shutting down")?
+            .send(req)
+            .map_err(|_| anyhow::anyhow!("embed actor thread is gone"))
+    }
+}
+
+impl Drop for EmbedActor {
+    fn drop(&mut self) {
+        // Closing the channel ends the actor's recv loop; then join so the
+        // model and context are torn down before the process moves on.
+        self.tx.take();
+        if let Some(handle) = self.handle.take() {
+            let _ = handle.join();
+        }
+    }
+}
+
+/// Owns the model and its single context for the life of the thread.
+///
+/// The model and context cannot live in a struct together (the context borrows
+/// the model, which would be self-referential), so both stay as locals here and
+/// the thread's stack frame is what keeps them alive.
+fn embed_actor_loop(
+    models_dir: PathBuf,
+    config: crate::config::Config,
+    ready: mpsc::Sender<Result<usize>>,
+    rx: mpsc::Receiver<EmbedRequest>,
+) {
+    let embed = match LlamaEmbed::new(&models_dir, &config) {
+        Ok(embed) => embed,
+        Err(e) => {
+            let _ = ready.send(Err(e));
+            return;
+        }
+    };
+
+    // Size the shared context once, to the model's own training context, so it
+    // fits any input the chunker can produce. Clamped to bound the KV-cache
+    // allocation on long-context models; `encode_in` covers the overflow.
+    let ctx_cap = embed.model.n_ctx_train().clamp(512, 4096);
+    let mut ctx = match embed.make_context(ctx_cap) {
+        Ok(ctx) => ctx,
+        Err(e) => {
+            let _ = ready.send(Err(e));
+            return;
+        }
+    };
+
+    tracing::info!(ctx_cap, dim = embed.dim, "embed actor ready");
+    if ready.send(Ok(embed.dim)).is_err() {
+        return; // Constructor gave up; nothing to serve.
+    }
+
+    // Ends when every sender is dropped (i.e. on `EmbedActor::drop`).
+    while let Ok(req) = rx.recv() {
+        match req {
+            EmbedRequest::Batch(texts, reply) => {
+                let _ = reply.send(embed.embed_batch_in(&mut ctx, ctx_cap, &texts));
+            }
+            EmbedRequest::One(text, reply) => {
+                let formatted = embed.prompt_format.format_query(&text);
+                let result = embed
+                    .tokenize(&formatted)
+                    .and_then(|tokens| embed.encode_in(&mut ctx, ctx_cap, &tokens));
+                let _ = reply.send(result);
+            }
+            EmbedRequest::TokenCount(text, reply) => {
+                let _ = reply.send(embed.tokenizer.token_count(&text));
+            }
+        }
+    }
+}
+
+impl EmbedModel for EmbedActor {
+    fn embed_batch(&mut self, texts: &[&str]) -> Result<Vec<Vec<f32>>> {
+        if texts.is_empty() {
+            return Ok(Vec::new());
+        }
+        let (reply_tx, reply_rx) = mpsc::channel();
+        let owned = texts.iter().map(|t| t.to_string()).collect();
+        self.send(EmbedRequest::Batch(owned, reply_tx))?;
+        reply_rx
+            .recv()
+            .context("embed actor dropped the batch reply")?
+    }
+
+    fn embed_one(&mut self, text: &str) -> Result<Vec<f32>> {
+        let (reply_tx, reply_rx) = mpsc::channel();
+        self.send(EmbedRequest::One(text.to_string(), reply_tx))?;
+        reply_rx
+            .recv()
+            .context("embed actor dropped the query reply")?
+    }
+
+    fn token_count(&self, text: &str) -> usize {
+        // The trait returns usize with no error channel, so a dead actor cannot
+        // be reported here. Log loudly and yield 0 rather than fail silently —
+        // any real failure will also surface on the next embed call, which can
+        // report it.
+        let (reply_tx, reply_rx) = mpsc::channel();
+        if let Err(e) = self.send(EmbedRequest::TokenCount(text.to_string(), reply_tx)) {
+            tracing::error!("embed actor token_count failed: {e}");
+            return 0;
+        }
+        match reply_rx.recv() {
+            Ok(count) => count,
+            Err(e) => {
+                tracing::error!("embed actor dropped token_count reply: {e}");
+                0
+            }
+        }
     }
 
     fn dim(&self) -> usize {

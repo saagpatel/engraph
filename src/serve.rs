@@ -1045,7 +1045,12 @@ pub async fn run_serve(
 
     let store = Store::open(&db_path)?;
     let config = Config::load()?;
-    let embedder = crate::llm::LlamaEmbed::new(&models_dir, &config)?;
+    // P3: the actor owns model + ONE reused llama.cpp context on its own thread.
+    // Every query through `LlamaEmbed` pays ~5.5ms of Metal pipeline setup to
+    // build a context it then throws away; serve is long-lived, so it pays that
+    // on every single query. Measured 1.67x on the query path, bit-identical
+    // output. See fable-explore/14-p3-embed-actor.md.
+    let embedder = crate::llm::EmbedActor::new(&models_dir, &config)?;
 
     let vault_path_str = store.get_meta("vault_path")?.ok_or_else(|| {
         anyhow::anyhow!("No vault path in index. Run 'engraph index <path>' first.")
