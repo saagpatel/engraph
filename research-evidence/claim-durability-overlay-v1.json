@@ -1,0 +1,203 @@
+{
+  "schema": "engraph-claim-durability-overlay.v1",
+  "as_of": "2026-07-17",
+  "claim_boundary": "This overlay classifies whether existing research claims remain citable and durable. It does not recreate an undocumented search, establish novelty, or upgrade unavailable evidence.",
+  "schema_binding": {
+    "path": "research-evidence/claim-durability-overlay-v1.schema.json",
+    "sha256": "ca6686b806598ade0cce3a1c771027df92d04a14598d7f5578a085a50c490ef1"
+  },
+  "source_ledger": {
+    "path": "research-evidence/citation-ledger-v1.json",
+    "sha256": "c74f7d9f8148a681bb9fbfabbf0b843369b66891dc02e8d4c5f27fe0f71a84c2"
+  },
+  "source_claim_record": {
+    "git_commit": "f69fffc1697f8974a906ec325b3f0976cf555ae2",
+    "path": "fable-explore/05-research-notes.md",
+    "sha256": "f1d5d17476cdcd2db75624fb82792be9c8c921ee633d8cd6422c11ef7df24185",
+    "availability": "ARCHIVED_EXACT_BYTES"
+  },
+  "source_archive": {
+    "path": "research-evidence/historical-sources/fable-t1-gate-verdict.tar",
+    "sha256": "7c639cf84bf50acfdb00dc3adc1c69b97468e5d7cd8d944f532aa5752ed01787",
+    "source_commit": "f69fffc1697f8974a906ec325b3f0976cf555ae2",
+    "members": [
+      {
+        "path": "fable-explore/05-research-notes.md",
+        "sha256": "f1d5d17476cdcd2db75624fb82792be9c8c921ee633d8cd6422c11ef7df24185"
+      },
+      {
+        "path": "fable-explore/09-t1-perf-refutation.md",
+        "sha256": "37d3f80cd46f10cca1933e3689abd7cfad9058c3594a0f883f9ae9e95cf86a85"
+      },
+      {
+        "path": "fable-explore/10-gpu-bound-verdict.md",
+        "sha256": "fb6e4571a6e2cb39e629dab1c9270a72de9bd424be9e3a0111aea82a8f51966c"
+      },
+      {
+        "path": "fable-explore/11-perf-claims-audit.md",
+        "sha256": "52b330eebb0f77a3232d367a74cb888faa9b48012db63334e4f18d6ccadd70ed"
+      }
+    ]
+  },
+  "historical_claims_source": {
+    "path": "research-evidence/historical-claims.json",
+    "sha256": "5da8c7caec2bacbe46a6888e5ad987e88c4cab0abe59073a05729a145fca4d69"
+  },
+  "historical_claim_dispositions": [
+    {
+      "claim": "T1 packed multi-sequence encoding loses at production-sized inputs",
+      "source_status": "SUPPORTED_LOCAL_HISTORICAL_OBSERVATION",
+      "durability_state": "DOCUMENTED_HISTORICAL_ASSERTION_UNREPRODUCIBLE",
+      "public_use": "DO_NOT_PUBLISH_AS_REPRODUCED_OR_GENERAL"
+    },
+    {
+      "claim": "P3 reused-context actor produced a 1.67x query-path speedup",
+      "source_status": "HISTORICAL_UNVERIFIED",
+      "durability_state": "HISTORICAL_UNVERIFIED",
+      "public_use": "DO_NOT_PUBLISH_EXACT_RATIO"
+    },
+    {
+      "claim": "P6 is retired",
+      "source_status": "SCOPED_TO_TESTED_MACHINE_MODEL_CONFIGURATION",
+      "durability_state": "MACHINE_CONFIGURATION_SCOPED_ONLY",
+      "public_use": "UNIVERSAL_RETIREMENT_PROHIBITED"
+    }
+  ],
+  "claim_surfaces": [
+    {
+      "surface_id": "readme-problem-positioning",
+      "source_kind": "LIVE_FILE_SECTION",
+      "path": "README.md",
+      "start_marker": "engraph is designed for users who prefer local, structured agent access over",
+      "end_marker": "\n\n## How it works",
+      "sha256": "60081bb486d9970783423d70c27059ee0e33409cc8acbf684f555fd796bb99d4",
+      "disposition": "POSITIONING_NOT_COMPETITOR_COVERAGE"
+    },
+    {
+      "surface_id": "readme-how-it-compares",
+      "source_kind": "LIVE_FILE_SECTION",
+      "path": "README.md",
+      "start_marker": "## How it compares\n",
+      "end_marker": "\n## Current capabilities",
+      "sha256": "9cef18c098e3c416b243037b1f390b83ed3c2f9434449b89f680c0647742d659",
+      "disposition": "SCOPED_REFERENCE_CATEGORIES_NOT_MARKET_SURVEY"
+    },
+    {
+      "surface_id": "historical-whole-pipeline-nobody-built",
+      "source_kind": "ARCHIVE_EXCERPT",
+      "archive_member": "fable-explore/05-research-notes.md",
+      "exact_excerpt": "**Nobody has built an essay-grade narrative walking a whole hybrid pipeline\n(keyword + semantic + graph + fusion) end to end.**",
+      "sha256": "7262db6555a9614330e084f7da798cb4625781f7773d3778c4f1b5ca0d87946f",
+      "disposition": "NOT_ESTABLISHED_UNDOCUMENTED_SEARCH"
+    },
+    {
+      "surface_id": "historical-tie-animation-novel",
+      "source_kind": "ARCHIVE_EXCERPT",
+      "archive_member": "fable-explore/05-research-notes.md",
+      "exact_excerpt": "Novel relative to\n   everything surveyed.",
+      "sha256": "8b54c0d49a4f28bd3fc2f9e7d922b96750300f41b2cd1d108c60f23294acfd1a",
+      "disposition": "NOT_ESTABLISHED_UNDOCUMENTED_SEARCH"
+    }
+  ],
+  "claims": [
+    {
+      "claim_id": "llama-context-reuse-production-practice",
+      "source_status": "SUPPORTED",
+      "durability_state": "PRIMARY_SOURCE_IDENTIFIED_VERSION_UNPINNED",
+      "public_use": "REVALIDATE_AND_PIN_IMMUTABLE_UPSTREAM_VERSION",
+      "reason": "The historical ledger points at mutable master URLs, records no consulted revision hash, and preserves no source snapshot."
+    },
+    {
+      "claim_id": "sqlite-vec-performance-figures",
+      "source_status": "REQUIRES_PRIMARY_CONFIRMATION_BEFORE_PUBLIC_CITATION",
+      "durability_state": "SECONDARY_SOURCE_UNCONFIRMED",
+      "public_use": "NOT_DURABLE_FOR_EXACT_NUMERIC_CITATION",
+      "reason": "The historical note says the figures arrived through search synthesis and require primary confirmation."
+    },
+    {
+      "claim_id": "whole-hybrid-pipeline-whitespace",
+      "source_status": "SPECULATIVE_DATED_SEARCH_RESULT",
+      "durability_state": "NEGATIVE_SEARCH_UNPRESERVED",
+      "public_use": "UNIVERSAL_NOVELTY_CLAIM_PROHIBITED",
+      "reason": "The source note names examples considered but preserves no exact queries, search surfaces, inclusion criteria, result set, timestamps, or stopping rule.",
+      "search_record": {
+        "execution_state": "HISTORICAL_SEARCH_UNPRESERVED",
+        "searched_at": {
+          "status": "UNKNOWN",
+          "reason": "No timestamped search receipt was preserved."
+        },
+        "exact_queries": {
+          "status": "UNKNOWN",
+          "reason": "The source note does not contain the executed queries."
+        },
+        "search_surfaces": {
+          "status": "UNKNOWN",
+          "reason": "The source note does not enumerate the searched indexes or engines."
+        },
+        "inclusion_criteria": {
+          "status": "UNKNOWN",
+          "reason": "No inclusion protocol was preserved."
+        },
+        "exclusion_criteria": {
+          "status": "UNKNOWN",
+          "reason": "No exclusion protocol was preserved."
+        },
+        "stop_rule": {
+          "status": "UNKNOWN",
+          "reason": "No convergence or stopping rule was preserved."
+        },
+        "preserved_candidate_assertions": [
+          {
+            "candidate": "Embedding projectors and WizMap",
+            "evidence_state": "NAMED_IN_SOURCE_NOTE_ONLY"
+          },
+          {
+            "candidate": "Live-editable PageRank graph explainers",
+            "evidence_state": "NAMED_IN_SOURCE_NOTE_ONLY"
+          },
+          {
+            "candidate": "RAG Playground and RAGGY",
+            "evidence_state": "NAMED_IN_SOURCE_NOTE_ONLY"
+          },
+          {
+            "candidate": "Serghei reciprocal-rank-fusion k-slider",
+            "canonical_identifier": "https://blog.serghei.pl/posts/reciprocal-rank-fusion-explained/",
+            "evidence_state": "NAMED_IN_SOURCE_NOTE_ONLY"
+          }
+        ],
+        "preserved_negative_assertions": [
+          {
+            "assertion": "No good interactive BM25 explainer was found.",
+            "evidence_state": "UNREPRODUCIBLE_SOURCE_NOTE_ASSERTION"
+          },
+          {
+            "assertion": "No essay-grade narrative covering the whole hybrid pipeline was found.",
+            "evidence_state": "UNREPRODUCIBLE_SOURCE_NOTE_ASSERTION"
+          }
+        ],
+        "claim_disposition": "NOT_ESTABLISHED",
+        "universal_claim_allowed": false,
+        "allowed_wording": "The 2026-07-17 audit found an undocumented search note that reported no example; because the queries and result set were not preserved, novelty is not established."
+      }
+    }
+  ],
+  "future_search_protocol": {
+    "protocol_id": "engraph-novelty-search-protocol.v1",
+    "state": "REQUIRED_BEFORE_REASSERTION",
+    "required_capture": [
+      "research_question_and_claim_scope",
+      "search_start_and_cutoff_timestamps",
+      "researcher_and_agent_identities",
+      "search_engines_indexes_and_directories",
+      "exact_queries_in_execution_order",
+      "inclusion_and_exclusion_criteria",
+      "candidate_and_competitor_results",
+      "negative_and_disconfirming_results",
+      "canonical_identifiers_versions_access_dates_and_hashes",
+      "supersession_or_withdrawal_status",
+      "convergence_and_stop_rule",
+      "claim_wording_allowed_by_the_record"
+    ],
+    "decision_rule": "Absence from a bounded search supports only a dated scoped no-example-found statement. It never establishes nobody-has-built or universal novelty."
+  }
+}

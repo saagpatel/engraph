@@ -100,6 +100,50 @@ The tool does not grant authority to run costly commands. Model downloads,
 expensive benchmarks, and external workloads still require the applicable
 operator approval.
 
+## Citation and novelty durability
+
+`citation-ledger-v1.json` is preserved as the historical citation assessment.
+`claim-durability-overlay-v1.json` binds that ledger and the original
+`fable/t1-gate-verdict` research records by SHA-256 without rewriting either
+source. Four exact historical files are retained in a deterministic local
+archive, so verification does not depend on an unrelated Git ref remaining
+reachable in a future or shallow checkout. The overlay also binds
+`historical-claims.json` and the scoped comparison sections in the live
+README. The overlay makes separate decisions:
+
+- mutable llama.cpp `master` links require revalidation and an immutable
+  upstream revision before durable citation;
+- the sqlite-vec figures remain unsuitable for exact public citation until
+  confirmed from a primary, versioned source;
+- the whole-pipeline whitespace claim is not established because the
+  historical search did not preserve exact queries, search surfaces, inclusion
+  criteria, results, timestamps, or a stopping rule.
+- the separate “novel relative to everything surveyed” sentence is likewise
+  not established;
+- T1 is a documented historical assertion that is not reproducible from the
+  surviving receipt/model evidence; P3 remains historically unverified; P6
+  remains scoped to its tested machine, model, and configuration.
+
+The names of candidates and negative results recorded in the old note survive
+only as source-note assertions; they are not reconstructed search receipts.
+Before any novelty claim is reasserted, the overlay requires a dated protocol
+that preserves exact queries, competitor and disconfirming results, source
+versions and hashes, supersession status, and the convergence rule. A bounded
+search may support only a dated “no example found” statement, never a universal
+“nobody has built this” conclusion.
+
+Verify the boundary locally without network access:
+
+```sh
+PYTHONPATH=scripts python3 -m unittest scripts/test_verify_claim_durability.py
+python3 scripts/verify_claim_durability.py
+```
+
+The same commands run in CI. Changes to the bound README comparison sections,
+historical claim files, archived source bytes, durability dispositions, or
+schema must update the evidence contract and pass its adversarial tests; new
+high-risk novelty phrases fail closed.
+
 ## Cross-repository schema boundary
 
 `research-evidence/schema-lineage-v1.json` records that Engraph and OPERANT
