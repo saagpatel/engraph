@@ -1168,4 +1168,25 @@ mod tests {
         assert_eq!(mentions.len(), 1);
         assert_eq!(mentions[0].0, person);
     }
+
+    #[test]
+    fn test_index_records_embedding_metadata() {
+        let vault = TempDir::new().unwrap();
+        write_file(vault.path(), "note.md", "# Metadata fixture\n");
+
+        let store = Store::open_memory().unwrap();
+        let mut embedder = crate::llm::MockLlm::new(256);
+        let config = Config::default();
+
+        run_index_shared(vault.path(), &config, &store, &mut embedder, false, None).unwrap();
+
+        assert_eq!(
+            store.get_meta("embedding_model_uri").unwrap(),
+            Some(ModelDefaults::default().embed_uri)
+        );
+        assert_eq!(
+            store.get_meta("embedding_dim").unwrap().as_deref(),
+            Some("256")
+        );
+    }
 }
