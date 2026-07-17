@@ -2,6 +2,8 @@
 
 import argparse
 import json
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -12,6 +14,26 @@ import research_receipt as rr
 
 
 class ReceiptTests(unittest.TestCase):
+    def test_v2_verifier_rejects_rights_and_artifact_overclaims(self) -> None:
+        representatives = json.loads(
+            (
+                rr.ROOT
+                / "research-evidence/contracts/v2/representative-records.json"
+            ).read_text(encoding="utf-8")
+        )["records"]
+        record = next(
+            row for row in representatives
+            if row["producer"]["system"] == "ENGRAPH"
+        )
+        record["state"] = record["outcome"]["state"]
+        self.assertEqual(rr._verify_v2_envelope(record), [])
+        rights_overclaim = json.loads(json.dumps(record))
+        rights_overclaim["rights"]["declared_license"]["status"] = "DECLARED"
+        self.assertTrue(rr._verify_v2_envelope(rights_overclaim))
+        invalid_digest = json.loads(json.dumps(record))
+        invalid_digest["evidence"]["raw_output"]["sha256"] = "z" * 64
+        self.assertTrue(rr._verify_v2_envelope(invalid_digest))
+
     def _args(
         self,
         *,
@@ -283,13 +305,57 @@ class ReceiptTests(unittest.TestCase):
                 rr, "_model_manifest_entry", return_value=self._manifest_entry(model)
             ):
                 receipt = rr.run_measured(args)
+                plan_record = json.loads(args.plan.read_text(encoding="utf-8"))
                 self.assertEqual(receipt["state"], "completed")
                 self.assertEqual(receipt["execution_provenance"], "tool_executed")
+                self.assertEqual(plan_record["schema"], rr.SCHEMA_V2)
+                self.assertEqual(receipt["schema"], rr.SCHEMA_V2)
+                self.assertEqual(
+                    receipt["contract"]["sha256"], rr.V2_CONTRACT_SHA256
+                )
+                self.assertNotEqual(plan_record["event_id"], receipt["event_id"])
+                self.assertEqual(
+                    receipt["parent_event_id"], plan_record["event_id"]
+                )
+                for field in ("producer", "run_id", "attempt_id", "case_id"):
+                    self.assertEqual(plan_record[field], receipt[field])
                 self.assertTrue(args.plan.is_file())
                 self.assertEqual(
                     receipt["planned_event"]["sha256"], rr.sha256(args.plan)
                 )
                 self.assertEqual(rr.verify_receipt(args.output), [])
+                validator = shutil.which("jsonschema")
+                if validator:
+                    schema = (
+                        rr.ROOT
+                        / "research-evidence/contracts/v2/"
+                        "research-claim-run-manifest-v2.schema.json"
+                    )
+                    for path in (args.plan, args.output):
+                        with self.subTest(v2_schema=path.name):
+                            validation = subprocess.run(
+                                [validator, "-i", str(path), str(schema)],
+                                check=False,
+                                capture_output=True,
+                                text=True,
+                            )
+                            self.assertEqual(
+                                validation.returncode, 0, validation.stderr
+                            )
+                forged = json.loads(args.output.read_text(encoding="utf-8"))
+                forged["parent_event_id"] = "unrelated-event"
+                forged["receipt_sha256"] = rr.canonical_digest(
+                    {
+                        key: value
+                        for key, value in forged.items()
+                        if key != "receipt_sha256"
+                    }
+                )
+                args.output.write_text(json.dumps(forged), encoding="utf-8")
+                self.assertIn(
+                    "result parent does not reference planned event",
+                    rr.verify_receipt(args.output),
+                )
 
     def test_same_manifest_attempt_succeeds_with_stable_identity(self) -> None:
         with tempfile.TemporaryDirectory(dir=rr.ROOT) as tmp:

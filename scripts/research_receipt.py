@@ -24,7 +24,20 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
-SCHEMA = "research-claim-run-manifest.v1"
+SCHEMA_V1 = "research-claim-run-manifest.v1"
+SCHEMA_V2 = "research-claim-run-manifest.v2"
+SCHEMA = SCHEMA_V1
+WRITE_SCHEMA = SCHEMA_V2
+SUPPORTED_SCHEMAS = frozenset({SCHEMA_V1, SCHEMA_V2})
+V2_CONTRACT_ID = (
+    "https://schemas.local.invalid/research-claim-run-manifest/v2/schema.json"
+)
+V2_CONTRACT_SHA256 = (
+    "a278934b14bdfcf4bb911680c0f67f58ec9a3a2fb1f62e78d47e70dbcc298d43"
+)
+V2_SCHEMA_PATH = (
+    ROOT / "research-evidence/contracts/v2/research-claim-run-manifest-v2.schema.json"
+)
 MODEL_MANIFEST = ROOT / "models/model-manifest-v1.json"
 TERMINAL_STATES = {"completed", "failed", "timeout", "aborted", "null"}
 COMPARABILITY_CLASSES = {
@@ -69,6 +82,313 @@ def canonical_digest(value: Any) -> str:
     return sha256_bytes(
         json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
     )
+
+
+def _unknown_artifact(reason: str) -> dict[str, str]:
+    return {"status": "UNKNOWN", "reason": reason}
+
+
+def _is_digest(value: Any) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == 64
+        and set(value) <= set("0123456789abcdef")
+    )
+
+
+def _require_v2_contract_bytes() -> None:
+    if not V2_SCHEMA_PATH.is_file() or sha256(V2_SCHEMA_PATH) != V2_CONTRACT_SHA256:
+        raise ValueError("v2 contract bytes differ from the pinned writer contract")
+
+
+def _verify_v2_artifact(value: Any, label: str) -> list[str]:
+    if not isinstance(value, dict):
+        return [f"{label} is not an object"]
+    if value.get("status") == "UNKNOWN":
+        return (
+            []
+            if isinstance(value.get("reason"), str) and value["reason"]
+            else [f"{label} UNKNOWN has no reason"]
+        )
+    if value.get("status") != "BOUND":
+        return [f"{label} status is unsupported"]
+    errors = []
+    digest = value.get("sha256")
+    if not _is_digest(digest):
+        errors.append(f"{label} digest is invalid")
+    if not isinstance(value.get("bytes"), int) or value["bytes"] < 0:
+        errors.append(f"{label} byte count is invalid")
+    if not value.get("locator") or value.get("locator_kind") not in {
+        "repository_relative",
+        "evidence_root_relative",
+        "home_relative",
+        "content_addressed",
+    }:
+        errors.append(f"{label} locator is unavailable")
+    return errors
+
+
+def _v2_artifact(
+    value: dict[str, Any] | None,
+    *,
+    home: bool = False,
+    sensitivity: str | None = None,
+) -> dict[str, Any]:
+    value = value or {}
+    locator_field = "home_relative_path" if home else "path"
+    locator = value.get(locator_field)
+    digest = value.get("sha256")
+    byte_count = value.get("bytes")
+    if (
+        not isinstance(locator, str)
+        or locator in {"", "UNKNOWN"}
+        or not isinstance(digest, str)
+        or len(digest) != 64
+        or not isinstance(byte_count, int)
+    ):
+        return _unknown_artifact("A byte-counted artifact is not bound.")
+    artifact = {
+        "status": "BOUND",
+        "sha256": digest,
+        "bytes": byte_count,
+        "locator_kind": "home_relative" if home else "repository_relative",
+        "locator": locator,
+    }
+    if sensitivity is not None:
+        artifact["sensitivity"] = sensitivity
+    return artifact
+
+
+def _capture(value: Any, reason: str) -> dict[str, str]:
+    if value is None or value == "UNKNOWN":
+        return _unknown_artifact(reason)
+    return {"status": "BOUND", "sha256": canonical_digest(value)}
+
+
+def _rights_unknown() -> dict[str, Any]:
+    return {
+        "declared_license": {
+            "status": "UNKNOWN",
+            "value": "UNKNOWN",
+            "reason": "No versioned license artifact is bound.",
+            "evidence": _unknown_artifact("No versioned license artifact is bound."),
+        },
+        "license_conclusion": {
+            "status": "NOT_ASSERTED",
+            "reason": "No legal conclusion is authorized.",
+            "evidence": _unknown_artifact(
+                "No versioned license evidence is bound."
+            ),
+        },
+        "consent_status": {
+            "status": "UNKNOWN",
+            "reason": "Consent evidence is unavailable.",
+            "evidence": _unknown_artifact("No consent artifact is bound."),
+        },
+        "redistribution_status": {
+            "status": "UNKNOWN",
+            "reason": "Redistribution rights were not established.",
+            "evidence": _unknown_artifact("No redistribution artifact is bound."),
+        },
+        "derivative_use_status": {
+            "status": "UNKNOWN",
+            "reason": "Derivative-use rights were not established.",
+            "evidence": _unknown_artifact("No derivative-use artifact is bound."),
+        },
+    }
+
+
+def _verify_adapter_rights(rights: Any, label: str) -> list[str]:
+    if not isinstance(rights, dict):
+        return [f"{label} is not an object"]
+    expected = {
+        "declared_license": "UNKNOWN",
+        "license_conclusion": "NOT_ASSERTED",
+        "consent_status": "UNKNOWN",
+        "redistribution_status": "UNKNOWN",
+        "derivative_use_status": "UNKNOWN",
+    }
+    errors = []
+    if set(rights) != set(expected):
+        errors.append(f"{label} fields differ")
+    for name, status in expected.items():
+        decision = rights.get(name) or {}
+        if decision.get("status") != status:
+            errors.append(f"{label}.{name} status exceeds adapter authority")
+        if not decision.get("reason"):
+            errors.append(f"{label}.{name} has no reason")
+        evidence = decision.get("evidence") or {}
+        if evidence.get("status") != "UNKNOWN" or not evidence.get("reason"):
+            errors.append(f"{label}.{name} evidence is not fail-closed UNKNOWN")
+    if (rights.get("declared_license") or {}).get("value") != "UNKNOWN":
+        errors.append(f"{label}.declared_license value exceeds adapter authority")
+    return errors
+
+
+def _v2_envelope(
+    record: dict[str, Any],
+    *,
+    event_id: str,
+    parent_event_id: str | None = None,
+) -> dict[str, Any]:
+    """Add the shared v2 envelope while retaining verified v1-compatible fields."""
+    _require_v2_contract_bytes()
+    model = record.get("model") or {}
+    runtime = record.get("runtime") or {}
+    repository = dict(record.get("repository") or {})
+    repository.setdefault("branch", "UNKNOWN")
+    repository.setdefault("replay_material", "UNKNOWN")
+    prompt = _v2_artifact(record.get("prompt_or_fixture"))
+    plan = _v2_artifact(record.get("planned_event"))
+    exact_input = (
+        plan
+        if plan.get("status") == "BOUND"
+        else _v2_artifact(record.get("input_manifest"))
+    )
+    if exact_input.get("status") != "BOUND":
+        exact_input = prompt
+    if exact_input.get("status") != "BOUND":
+        exact_input = _unknown_artifact("No exact input artifact is bound.")
+    tokenizer = (
+        {
+            "status": "BOUND",
+            "sha256": model["sha256"],
+            "bytes": model["bytes"],
+            "locator_kind": "content_addressed",
+            "locator": f"sha256:{model['sha256']}",
+            "sensitivity": "private_not_embedded",
+        }
+        if (
+            isinstance(model.get("sha256"), str)
+            and len(model["sha256"]) == 64
+            and isinstance(model.get("bytes"), int)
+        )
+        else _unknown_artifact("Tokenizer artifact bytes are unavailable.")
+    )
+    record_type = record["record_type"]
+    timestamp = record["timestamp"]
+    state = record["state"]
+    result = {
+        **record,
+        "schema": WRITE_SCHEMA,
+        "contract": {
+            "id": V2_CONTRACT_ID,
+            "sha256": V2_CONTRACT_SHA256,
+            "source_schema": "ENGRAPH_V1_ADAPTER",
+        },
+        "producer": {"system": "ENGRAPH", "version": "v1-adapter"},
+        "event_id": event_id,
+        "outcome": {
+            "state": state,
+            "started_at": (
+                timestamp
+                if record_type == "attempt_planned"
+                else record.get("run_started_at", "UNKNOWN")
+            ),
+            "ended_at": (
+                "UNKNOWN"
+                if record_type == "attempt_planned"
+                else record.get("run_ended_at", timestamp)
+            ),
+            "exit_code": record.get("exit_code", "UNKNOWN"),
+            "failure_reason": (
+                "measured command failed"
+                if state in {"failed", "timeout", "aborted"}
+                else ""
+            ),
+            "null_reason": "unspecified null result" if state == "null" else "",
+        },
+        "evidence": {
+            "exact_input": exact_input,
+            "case": prompt,
+            "prompt": prompt,
+            "system_harness": _v2_artifact(record.get("tool_binary")),
+            "dependency_lock": _v2_artifact(
+                (record.get("dependencies") or {}).get("cargo_lock")
+            ),
+            "model": _v2_artifact(
+                model, home=True, sensitivity="private_not_embedded"
+            ),
+            "tokenizer": tokenizer,
+            "raw_output": _v2_artifact(
+                record.get("raw_output"),
+                sensitivity=record.get("sensitivity", "UNKNOWN"),
+            ),
+            "scorer": _v2_artifact(record.get("scorer")),
+            "summary": _v2_artifact(record.get("summary")),
+        },
+        "repository": repository,
+        "environment": {
+            "cli": _capture(
+                record.get("command_argv"),
+                "Measured command capture is unavailable.",
+            ),
+            "runtime": _capture(runtime, "Runtime capture is unavailable."),
+            "toolchain": _capture(
+                {
+                    "rust_toolchain_declared": runtime.get(
+                        "rust_toolchain_declared"
+                    ),
+                    "rustc": runtime.get("rustc"),
+                    "cargo": runtime.get("cargo"),
+                    "cmake": runtime.get("cmake"),
+                },
+                "Toolchain capture is unavailable.",
+            ),
+            "hardware": _capture(
+                runtime.get("hardware"),
+                "Hardware capture is unavailable.",
+            ),
+            "os": _capture(
+                {
+                    "os": runtime.get("os"),
+                    "os_release": runtime.get("os_release"),
+                    "architecture": runtime.get("architecture"),
+                },
+                "OS capture is unavailable.",
+            ),
+            "seed": _capture(
+                record.get("seed"),
+                "Seed capture is unavailable.",
+            ),
+            "settings": _capture(
+                record.get("settings"),
+                "Settings capture is unavailable.",
+            ),
+        },
+        "model_identity": {
+            "requested": str(model.get("uri") or "UNKNOWN"),
+            "observed": (
+                [str(model["object_identity"])]
+                if model.get("object_identity")
+                else "UNKNOWN"
+            ),
+            "artifact_sha256": model.get("sha256", "UNKNOWN"),
+            "tokenizer_sha256": (
+                tokenizer.get("sha256")
+                if tokenizer.get("status") == "BOUND"
+                else "UNKNOWN"
+            ),
+        },
+        "rights": _rights_unknown(),
+        "comparison": {
+            "class": record.get("comparability_class", "unclassified"),
+            "baseline": _unknown_artifact(
+                "No authenticated external baseline is bound."
+            ),
+            "errors": [],
+        },
+        "integrity": {
+            "self_digest": _unknown_artifact(
+                "RFC8785/JCS self-digest production is not implemented."
+            ),
+            "canonicalization": "UNKNOWN",
+            "authentication": "UNKNOWN",
+        },
+    }
+    if parent_event_id is not None:
+        result["parent_event_id"] = parent_event_id
+    return result
 
 
 def git_text(*args: str) -> str:
@@ -549,7 +869,7 @@ def create_receipt(args: argparse.Namespace) -> dict[str, Any]:
             )
 
     receipt: dict[str, Any] = {
-        "schema": SCHEMA,
+        "schema": WRITE_SCHEMA,
         "record_type": "attempt_result",
         "run_id": args.run_id or f"engraph-{uuid.uuid4()}",
         "attempt_id": getattr(args, "_attempt_id", None) or str(uuid.uuid4()),
@@ -613,6 +933,13 @@ def create_receipt(args: argparse.Namespace) -> dict[str, Any]:
         "settings": settings,
         "receipt_integrity": "SELF_DIGEST_ONLY_NOT_AUTHENTICATED",
     }
+    receipt = _v2_envelope(
+        receipt,
+        event_id=str(uuid.uuid4()),
+        parent_event_id=(
+            (getattr(args, "_plan_record", None) or {}).get("event_id")
+        ),
+    )
     receipt["receipt_sha256"] = canonical_digest(receipt)
     output.parent.mkdir(parents=True, exist_ok=True)
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
@@ -711,7 +1038,112 @@ def _verify_plan_binding(data: dict[str, Any]) -> list[str]:
         "process_policy": data.get("process_policy"),
     }
     actual = {key: plan.get(key) for key in expected}
-    return [] if actual == expected else ["planned event inputs differ from result"]
+    errors = (
+        [] if actual == expected else ["planned event inputs differ from result"]
+    )
+    if data.get("schema") == SCHEMA_V2:
+        if plan.get("schema") != SCHEMA_V2:
+            errors.append("planned event schema differs from result")
+        if plan.get("record_type") != "attempt_planned":
+            errors.append("planned event record type mismatch")
+        if data.get("parent_event_id") != plan.get("event_id"):
+            errors.append("result parent does not reference planned event")
+        if data.get("event_id") == plan.get("event_id"):
+            errors.append("plan and result event ids are not distinct")
+        for field in ("contract", "producer", "run_id", "attempt_id", "case_id"):
+            if data.get(field) != plan.get(field):
+                errors.append(f"planned event {field} differs from result")
+    return errors
+
+
+def _verify_v2_envelope(data: dict[str, Any]) -> list[str]:
+    if data.get("schema") != SCHEMA_V2:
+        return []
+    errors = []
+    contract = data.get("contract") or {}
+    if (
+        contract.get("id") != V2_CONTRACT_ID
+        or contract.get("sha256") != V2_CONTRACT_SHA256
+        or contract.get("source_schema") != "ENGRAPH_V1_ADAPTER"
+    ):
+        errors.append("v2 contract binding mismatch")
+    if (data.get("producer") or {}).get("system") != "ENGRAPH":
+        errors.append("v2 producer mismatch")
+    if not data.get("event_id"):
+        errors.append("v2 event id missing")
+    outcome = data.get("outcome") or {}
+    if outcome.get("state") != data.get("state"):
+        errors.append("v2 outcome state mismatch")
+    required = {
+        "exact_input",
+        "case",
+        "prompt",
+        "system_harness",
+        "dependency_lock",
+        "model",
+        "tokenizer",
+        "raw_output",
+        "scorer",
+        "summary",
+    }
+    if set(data.get("evidence") or {}) != required:
+        errors.append("v2 evidence fields differ")
+    for name, artifact in (data.get("evidence") or {}).items():
+        errors.extend(_verify_v2_artifact(artifact, f"v2 evidence.{name}"))
+    for field in ("commit", "branch", "dirty", "dirty_state_sha256", "replay_material"):
+        if field not in (data.get("repository") or {}):
+            errors.append(f"v2 repository missing {field}")
+    environment = data.get("environment") or {}
+    required_environment = {
+        "cli", "runtime", "toolchain", "hardware", "os", "seed", "settings"
+    }
+    if set(environment) != required_environment:
+        errors.append("v2 environment fields differ")
+    for name, capture in environment.items():
+        if not isinstance(capture, dict) or capture.get("status") not in {
+            "BOUND", "UNKNOWN"
+        }:
+            errors.append(f"v2 environment.{name} status is unsupported")
+        elif capture.get("status") == "UNKNOWN" and not capture.get("reason"):
+            errors.append(f"v2 environment.{name} UNKNOWN has no reason")
+        elif capture.get("status") == "BOUND" and not _is_digest(
+            capture.get("sha256")
+        ):
+            errors.append(f"v2 environment.{name} digest is invalid")
+    model_identity = data.get("model_identity") or {}
+    for field in ("requested", "observed", "artifact_sha256", "tokenizer_sha256"):
+        if field not in model_identity:
+            errors.append(f"v2 model identity missing {field}")
+    if not model_identity.get("requested"):
+        errors.append("v2 requested model identity is unavailable")
+    if model_identity.get("observed") != "UNKNOWN" and not (
+        isinstance(model_identity.get("observed"), list)
+        and bool(model_identity["observed"])
+        and all(isinstance(value, str) and value for value in model_identity["observed"])
+    ):
+        errors.append("v2 observed model identity is invalid")
+    for field in ("artifact_sha256", "tokenizer_sha256"):
+        if model_identity.get(field) != "UNKNOWN" and not _is_digest(
+            model_identity.get(field)
+        ):
+            errors.append(f"v2 model identity {field} is invalid")
+    rights = data.get("rights") or {}
+    errors.extend(_verify_adapter_rights(rights, "v2 rights"))
+    comparison = data.get("comparison") or {}
+    if not {"class", "baseline", "errors"} <= set(comparison):
+        errors.append("v2 comparison fields are incomplete")
+    else:
+        errors.extend(
+            _verify_v2_artifact(comparison["baseline"], "v2 comparison baseline")
+        )
+    integrity = data.get("integrity") or {}
+    if (
+        (integrity.get("self_digest") or {}).get("status") != "UNKNOWN"
+        or integrity.get("canonicalization") != "UNKNOWN"
+        or integrity.get("authentication") != "UNKNOWN"
+    ):
+        errors.append("v2 integrity boundary is overstated")
+    return errors
 
 
 def verify_receipt(path: Path) -> list[str]:
@@ -720,8 +1152,9 @@ def verify_receipt(path: Path) -> list[str]:
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         return [f"receipt unreadable: {type(exc).__name__}"]
     errors = []
-    if data.get("schema") != SCHEMA:
+    if data.get("schema") not in SUPPORTED_SCHEMAS:
         errors.append("unsupported schema")
+    errors.extend(_verify_v2_envelope(data))
     if data.get("record_type") != "attempt_result":
         errors.append("unsupported record type")
     if data.get("state") not in TERMINAL_STATES:
@@ -997,7 +1430,7 @@ def run_measured(args: argparse.Namespace) -> dict[str, Any]:
     attempt_id = str(uuid.uuid4())
     started_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     plan_record = {
-        "schema": SCHEMA,
+        "schema": WRITE_SCHEMA,
         "record_type": "attempt_planned",
         "run_id": run_id,
         "attempt_id": attempt_id,
@@ -1029,6 +1462,10 @@ def run_measured(args: argparse.Namespace) -> dict[str, Any]:
         "tool_binary": _optional_repo_artifact(args.tool_binary),
         "comparability_class": args.comparability,
     }
+    plan_record = _v2_envelope(
+        plan_record,
+        event_id=str(uuid.uuid4()),
+    )
     _write_exclusive_json(plan, plan_record)
     plan_sha256 = sha256(plan)
     raw.parent.mkdir(parents=True, exist_ok=True)

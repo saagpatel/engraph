@@ -1,7 +1,7 @@
 {
   "schema": "research-claim-run-manifest-compatibility.v1",
   "target_contract_id": "https://schemas.local.invalid/research-claim-run-manifest/v2/schema.json",
-  "target_contract_sha256": "f36963c0d7f0ca3ea0505de4f64411bea834481c5194e47caaf91a1c58248380",
+  "target_contract_sha256": "a278934b14bdfcf4bb911680c0f67f58ec9a3a2fb1f62e78d47e70dbcc298d43",
   "collision": {
     "status": "INCOMPATIBLE_SAME_V1_IDENTIFIER",
     "shared_v1_id": "https://local.invalid/research-claim-run-manifest-v1.schema.json",
@@ -46,5 +46,5 @@
     {"v1": "summary", "v2": "evidence.summary", "mode": "DIRECT_OR_UNKNOWN"},
     {"v1": "runtime+runtime_after", "v2": "environment", "mode": "ADAPTER_COMPOSITE"}
   ],
-  "adoption_status": "CONTRACT_VALIDATED_PRODUCERS_NOT_YET_SWITCHED"
+  "adoption_status": "DUAL_READ_NEW_WRITE_V2_SYNTHETICALLY_VALIDATED"
 }

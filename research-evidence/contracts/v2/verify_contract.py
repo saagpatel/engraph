@@ -163,8 +163,8 @@ def verify() -> None:
     )
     _require(
         compatibility["adoption_status"]
-        == "CONTRACT_VALIDATED_PRODUCERS_NOT_YET_SWITCHED",
-        "adoption status overclaims producer activation",
+        == "DUAL_READ_NEW_WRITE_V2_SYNTHETICALLY_VALIDATED",
+        "adoption status does not match the validated producer rollout",
     )
     _require(
         lock["adoption_status"] == compatibility["adoption_status"],

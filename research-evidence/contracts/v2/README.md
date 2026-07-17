@@ -2,8 +2,9 @@
 
 This directory is a byte-identical contract package shared by OPERANT and
 Engraph. It resolves the v1 identifier collision by using a new `$id` and an
-exact schema digest. The package is locally validated but is not yet the active
-writer format in either system.
+exact schema digest. Both systems retain v1 readers and use the v2 envelope for
+new controlled writes; synthetic plan/result/score paths validate against this
+contract.
 
 The v2 envelope keeps correctness, reproducibility, provenance, model identity,
 rights, consent, redistribution, and comparability as separate fields. Missing

@@ -168,13 +168,13 @@
           "enum": ["pending", "completed", "failed", "timeout", "aborted", "null", "scored", "historical"]
         },
         "started_at": {
-          "oneOf": [
+          "anyOf": [
             {"type": "string", "format": "date-time"},
             {"const": "UNKNOWN"}
           ]
         },
         "ended_at": {
-          "oneOf": [
+          "anyOf": [
             {"type": "string", "format": "date-time"},
             {"const": "UNKNOWN"}
           ]

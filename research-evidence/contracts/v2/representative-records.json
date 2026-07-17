@@ -5,7 +5,7 @@
       "schema": "research-claim-run-manifest.v2",
       "contract": {
         "id": "https://schemas.local.invalid/research-claim-run-manifest/v2/schema.json",
-        "sha256": "f36963c0d7f0ca3ea0505de4f64411bea834481c5194e47caaf91a1c58248380",
+        "sha256": "a278934b14bdfcf4bb911680c0f67f58ec9a3a2fb1f62e78d47e70dbcc298d43",
         "source_schema": "OPERANT_V1_ADAPTER"
       },
       "producer": {"system": "OPERANT", "version": "representative-v2"},
@@ -61,7 +61,7 @@
       "schema": "research-claim-run-manifest.v2",
       "contract": {
         "id": "https://schemas.local.invalid/research-claim-run-manifest/v2/schema.json",
-        "sha256": "f36963c0d7f0ca3ea0505de4f64411bea834481c5194e47caaf91a1c58248380",
+        "sha256": "a278934b14bdfcf4bb911680c0f67f58ec9a3a2fb1f62e78d47e70dbcc298d43",
         "source_schema": "ENGRAPH_V1_ADAPTER"
       },
       "producer": {"system": "ENGRAPH", "version": "representative-v2"},
