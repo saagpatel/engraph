@@ -1,0 +1,106 @@
+{
+  "attempt_id": "ed09a0c0-a787-43f4-aca8-82f8cad42699",
+  "case_id": "p3-actor-current-correctness-parity",
+  "claim_kind": "correctness",
+  "command_argv": [
+    "target/release/examples/p3_actor_parity",
+    "$HOME/.engraph/models",
+    "parity"
+  ],
+  "comparability_class": "same_manifest_attempt",
+  "configuration": {
+    "mode": "builtin_default"
+  },
+  "dependencies": {
+    "cargo_lock": {
+      "bytes": 90914,
+      "path": "Cargo.lock",
+      "sha256": "b7b4c8bc36f89a61db717f62106c5edb7fb7494144ff6b2e6257106230144c6c"
+    },
+    "cargo_toml": {
+      "bytes": 1674,
+      "path": "Cargo.toml",
+      "sha256": "362f0d67e76111e14faa4b583d78f4c12fc9dd1665f719282be16e8c3c41b73c"
+    }
+  },
+  "input_manifest": {
+    "bytes": "UNKNOWN",
+    "path": "UNKNOWN",
+    "sha256": "UNKNOWN"
+  },
+  "model": {
+    "acquisition": {
+      "reason": "No acquisition receipt exists for this cached artifact.",
+      "status": "UNKNOWN_LEGACY_CACHE"
+    },
+    "bytes": 333590944,
+    "home_relative_path": ".engraph/models/ggml-org--embeddinggemma-300M-GGUF--embeddinggemma-300M-Q8_0.gguf",
+    "manifest_sha256": "c176f978d1c9f26e5774200f3eed196c8d197f668cfc995afd0e22ccaa14ec42",
+    "object_identity": "sha256:b5ce9d77a3fc4b3b39ccb5643c36777911cc4eb46a66962eadfa3f5f60490d63",
+    "sha256": "b5ce9d77a3fc4b3b39ccb5643c36777911cc4eb46a66962eadfa3f5f60490d63",
+    "uri": "hf:ggml-org/embeddinggemma-300M-GGUF/embeddinggemma-300M-Q8_0.gguf"
+  },
+  "process_policy": "source_reviewed_no_process_spawning",
+  "prompt_or_fixture": {
+    "bytes": 8787,
+    "path": "examples/p3_actor_parity.rs",
+    "sha256": "f4e1dcfec316d5c966476d2293ef01d6c633a7093710c9b48701d9926ed9b575"
+  },
+  "record_type": "attempt_planned",
+  "repository": {
+    "branch": "codex/research-integrity-controls",
+    "commit": "99f45d73ddef9f48915b696ca62f11a3da46361d",
+    "dirty": false,
+    "dirty_state_sha256": "8116046183c5a8d677c422712fba4762cc9d31da36ad9a53aab31d45751a57c5",
+    "replay_material": "clean_commit",
+    "tracked_diff_bytes": 0,
+    "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "untracked": []
+  },
+  "run_id": "engraph-60a02dfb-a014-4c96-b5d8-3bcfa5ee5538",
+  "runtime": {
+    "architecture": "arm64",
+    "cargo": "cargo 1.97.0 (c980f4866 2026-06-30) (Homebrew)\nrelease: 1.97.0\ncommit-hash: c980f4866141969fab6254a680546a277789d6f0\ncommit-date: 2026-06-30\nhost: aarch64-apple-darwin\nlibgit2: 1.9.4 (sys:0.20.4 system)\nlibcurl: 8.7.1 (sys:0.4.88+curl-8.20.0 system ssl:(SecureTransport) LibreSSL/3.3.6)\nos: Mac OS 26.5.2 [64-bit]",
+    "cmake": "cmake version 4.4.0\n\nCMake suite maintained and supported by Kitware (kitware.com/cmake).",
+    "environment_capture": "ALLOWLIST_ONLY_NO_SECRETS",
+    "hardware": {
+      "gpu_display_identity": "sha256:2974b6b72c97879965b4833a9d4a96d07a64824c1bdff83923916a41aa1ece4c",
+      "load_average_1m_5m_15m": [
+        17.1943359375,
+        21.63623046875,
+        22.80224609375
+      ],
+      "logical_cpu_count": 14,
+      "memory_bytes": "51539607552",
+      "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+      "processor": "Apple M4 Pro"
+    },
+    "os": "Darwin",
+    "os_release": "25.5.0",
+    "python": "3.14.6",
+    "research_environment": {
+      "ENGRAPH_P3_NCTX": "UNSET",
+      "FABLE_N_GPU_LAYERS": "UNSET",
+      "LLAMA_ARG_N_GPU_LAYERS": "UNSET",
+      "OMP_NUM_THREADS": "UNSET",
+      "RAYON_NUM_THREADS": "UNSET",
+      "T1_PASSES": "UNSET"
+    },
+    "rust_toolchain_declared": "rustc 1.97.0 (2d8144b78 2026-07-07) (Homebrew)",
+    "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07) (Homebrew)\nbinary: rustc\ncommit-hash: 2d8144b7880597b6e6d3dfd63a9a9efae3f533d3\ncommit-date: 2026-07-07\nhost: aarch64-apple-darwin\nrelease: 1.97.0\nLLVM version: 22.1.8"
+  },
+  "schema": "research-claim-run-manifest.v1",
+  "seed": "0",
+  "sensitivity": "synthetic",
+  "settings": {
+    "mode": "parity",
+    "timing": "disabled"
+  },
+  "state": "pending",
+  "timestamp": "2026-07-17T15:35:12.464326Z",
+  "tool_binary": {
+    "bytes": 11565920,
+    "path": "target/release/examples/p3_actor_parity",
+    "sha256": "5b0d72b446fc1841791fe68170958934c94626a7c517e46b9fe2fd1d8702f61a"
+  }
+}
