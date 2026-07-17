@@ -1,0 +1,542 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.local.invalid/research-claim-run-manifest/v2/schema.json",
+  "title": "Research Claim Run Manifest V2",
+  "type": "object",
+  "additionalProperties": true,
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "unknown": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "reason"],
+      "properties": {
+        "status": {"const": "UNKNOWN"},
+        "reason": {"type": "string", "minLength": 1}
+      }
+    },
+    "artifact": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "sha256", "bytes", "locator_kind", "locator"],
+          "properties": {
+            "status": {"const": "BOUND"},
+            "sha256": {"$ref": "#/$defs/digest"},
+            "bytes": {"type": "integer", "minimum": 0},
+            "locator_kind": {
+              "enum": ["repository_relative", "evidence_root_relative", "home_relative", "content_addressed"]
+            },
+            "locator": {"type": "string", "minLength": 1},
+            "media_type": {"type": "string", "minLength": 1},
+            "sensitivity": {
+              "enum": ["synthetic", "public_non_sensitive", "private_not_embedded", "UNKNOWN"]
+            }
+          }
+        },
+        {"$ref": "#/$defs/unknown"}
+      ]
+    },
+    "capture": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": true,
+          "required": ["status", "sha256"],
+          "properties": {
+            "status": {"const": "BOUND"},
+            "sha256": {"$ref": "#/$defs/digest"}
+          }
+        },
+        {"$ref": "#/$defs/unknown"}
+      ]
+    },
+    "decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "reason", "evidence"],
+      "properties": {
+        "status": {
+          "enum": ["UNKNOWN", "NOT_ASSERTED", "NOT_APPLICABLE", "REVIEW_REQUIRED"]
+        },
+        "reason": {"type": "string", "minLength": 1},
+        "evidence": {"$ref": "#/$defs/artifact"}
+      }
+    },
+    "declaredLicense": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "value", "reason", "evidence"],
+      "properties": {
+        "status": {"enum": ["DECLARED", "UNKNOWN"]},
+        "value": {"type": "string", "minLength": 1},
+        "reason": {"type": "string", "minLength": 1},
+        "evidence": {"$ref": "#/$defs/artifact"}
+      }
+    },
+    "repository": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["commit", "branch", "dirty", "dirty_state_sha256", "replay_material"],
+      "properties": {
+        "commit": {
+          "oneOf": [
+            {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+            {"const": "UNKNOWN"}
+          ]
+        },
+        "branch": {"type": "string", "minLength": 1},
+        "dirty": {
+          "oneOf": [
+            {"type": "boolean"},
+            {"const": "UNKNOWN"}
+          ]
+        },
+        "dirty_state_sha256": {
+          "oneOf": [
+            {"$ref": "#/$defs/digest"},
+            {"const": "UNKNOWN"}
+          ]
+        },
+        "replay_material": {
+          "enum": ["clean_commit", "digest_bound_dirty_state", "digest_only_not_reconstructable", "UNKNOWN"]
+        }
+      }
+    }
+  },
+  "required": [
+    "schema",
+    "contract",
+    "producer",
+    "record_type",
+    "event_id",
+    "run_id",
+    "attempt_id",
+    "timestamp",
+    "case_id",
+    "outcome",
+    "evidence",
+    "repository",
+    "environment",
+    "model_identity",
+    "rights",
+    "comparison",
+    "integrity"
+  ],
+  "properties": {
+    "schema": {"const": "research-claim-run-manifest.v2"},
+    "contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "sha256", "source_schema"],
+      "properties": {
+        "id": {"const": "https://schemas.local.invalid/research-claim-run-manifest/v2/schema.json"},
+        "sha256": {"$ref": "#/$defs/digest"},
+        "source_schema": {
+          "enum": ["NATIVE_V2", "OPERANT_V1_ADAPTER", "ENGRAPH_V1_ADAPTER"]
+        }
+      }
+    },
+    "producer": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["system", "version"],
+      "properties": {
+        "system": {"enum": ["OPERANT", "ENGRAPH"]},
+        "version": {"type": "string", "minLength": 1}
+      }
+    },
+    "record_type": {
+      "enum": ["attempt_planned", "attempt_result", "score_result", "historical_evidence"]
+    },
+    "event_id": {"type": "string", "minLength": 1},
+    "parent_event_id": {"type": "string", "minLength": 1},
+    "run_id": {"type": "string", "minLength": 1},
+    "attempt_id": {"type": "string", "minLength": 1},
+    "timestamp": {"type": "string", "format": "date-time"},
+    "case_id": {"type": "string", "minLength": 1},
+    "outcome": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["state", "started_at", "ended_at", "exit_code", "failure_reason", "null_reason"],
+      "properties": {
+        "state": {
+          "enum": ["pending", "completed", "failed", "timeout", "aborted", "null", "scored", "historical"]
+        },
+        "started_at": {
+          "oneOf": [
+            {"type": "string", "format": "date-time"},
+            {"const": "UNKNOWN"}
+          ]
+        },
+        "ended_at": {
+          "oneOf": [
+            {"type": "string", "format": "date-time"},
+            {"const": "UNKNOWN"}
+          ]
+        },
+        "exit_code": {
+          "oneOf": [
+            {"type": "integer"},
+            {"const": "UNKNOWN"}
+          ]
+        },
+        "failure_reason": {"type": "string"},
+        "null_reason": {"type": "string"}
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "exact_input",
+        "case",
+        "prompt",
+        "system_harness",
+        "dependency_lock",
+        "model",
+        "tokenizer",
+        "raw_output",
+        "scorer",
+        "summary"
+      ],
+      "properties": {
+        "exact_input": {"$ref": "#/$defs/artifact"},
+        "case": {"$ref": "#/$defs/artifact"},
+        "prompt": {"$ref": "#/$defs/artifact"},
+        "system_harness": {"$ref": "#/$defs/artifact"},
+        "dependency_lock": {"$ref": "#/$defs/artifact"},
+        "model": {"$ref": "#/$defs/artifact"},
+        "tokenizer": {"$ref": "#/$defs/artifact"},
+        "raw_output": {"$ref": "#/$defs/artifact"},
+        "scorer": {"$ref": "#/$defs/artifact"},
+        "summary": {"$ref": "#/$defs/artifact"}
+      }
+    },
+    "repository": {"$ref": "#/$defs/repository"},
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cli", "runtime", "toolchain", "hardware", "os", "seed", "settings"],
+      "properties": {
+        "cli": {"$ref": "#/$defs/capture"},
+        "runtime": {"$ref": "#/$defs/capture"},
+        "toolchain": {"$ref": "#/$defs/capture"},
+        "hardware": {"$ref": "#/$defs/capture"},
+        "os": {"$ref": "#/$defs/capture"},
+        "seed": {"$ref": "#/$defs/capture"},
+        "settings": {"$ref": "#/$defs/capture"}
+      }
+    },
+    "model_identity": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["requested", "observed", "artifact_sha256", "tokenizer_sha256"],
+      "properties": {
+        "requested": {"type": "string", "minLength": 1},
+        "observed": {
+          "oneOf": [
+            {
+              "type": "array",
+              "minItems": 1,
+              "items": {"type": "string", "minLength": 1}
+            },
+            {"const": "UNKNOWN"}
+          ]
+        },
+        "artifact_sha256": {
+          "oneOf": [
+            {"$ref": "#/$defs/digest"},
+            {"const": "UNKNOWN"}
+          ]
+        },
+        "tokenizer_sha256": {
+          "oneOf": [
+            {"$ref": "#/$defs/digest"},
+            {"const": "UNKNOWN"}
+          ]
+        }
+      }
+    },
+    "rights": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "declared_license",
+        "license_conclusion",
+        "consent_status",
+        "redistribution_status",
+        "derivative_use_status"
+      ],
+      "properties": {
+        "declared_license": {"$ref": "#/$defs/declaredLicense"},
+        "license_conclusion": {"$ref": "#/$defs/decision"},
+        "consent_status": {"$ref": "#/$defs/decision"},
+        "redistribution_status": {"$ref": "#/$defs/decision"},
+        "derivative_use_status": {"$ref": "#/$defs/decision"}
+      }
+    },
+    "comparison": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["class", "baseline", "errors"],
+      "properties": {
+        "class": {
+          "enum": [
+            "unclassified",
+            "same_manifest_attempt",
+            "hardware_variant",
+            "runtime_variant",
+            "model_variant",
+            "input_variant",
+            "incomparable",
+            "historical_unverified"
+          ]
+        },
+        "baseline": {"$ref": "#/$defs/artifact"},
+        "errors": {
+          "type": "array",
+          "items": {"type": "string"}
+        }
+      }
+    },
+    "integrity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["self_digest", "canonicalization", "authentication"],
+      "properties": {
+        "self_digest": {"$ref": "#/$defs/artifact"},
+        "canonicalization": {
+          "enum": ["RFC8785_JCS_EXCLUDING_INTEGRITY_SELF_DIGEST", "UNKNOWN"]
+        },
+        "authentication": {"enum": ["SELF_DIGEST_ONLY_NOT_AUTHENTICATED", "UNKNOWN"]}
+      }
+    },
+    "extensions": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "rights": {
+            "properties": {
+              "declared_license": {
+                "properties": {"status": {"const": "DECLARED"}},
+                "required": ["status"]
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "rights": {
+            "properties": {
+              "declared_license": {
+                "properties": {
+                  "evidence": {
+                    "properties": {"status": {"const": "BOUND"}},
+                    "required": ["status"]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "rights": {
+            "properties": {
+              "declared_license": {
+                "properties": {"status": {"const": "UNKNOWN"}},
+                "required": ["status"]
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "rights": {
+            "properties": {
+              "declared_license": {
+                "properties": {
+                  "value": {"const": "UNKNOWN"},
+                  "evidence": {
+                    "properties": {"status": {"const": "UNKNOWN"}},
+                    "required": ["status"]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "integrity": {
+            "properties": {
+              "self_digest": {
+                "properties": {"status": {"const": "BOUND"}},
+                "required": ["status"]
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "integrity": {
+            "properties": {
+              "canonicalization": {
+                "const": "RFC8785_JCS_EXCLUDING_INTEGRITY_SELF_DIGEST"
+              },
+              "authentication": {
+                "const": "SELF_DIGEST_ONLY_NOT_AUTHENTICATED"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "integrity": {
+            "properties": {
+              "self_digest": {
+                "properties": {"status": {"const": "UNKNOWN"}},
+                "required": ["status"]
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "integrity": {
+            "properties": {
+              "canonicalization": {"const": "UNKNOWN"},
+              "authentication": {"const": "UNKNOWN"}
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {"record_type": {"const": "attempt_planned"}},
+        "required": ["record_type"]
+      },
+      "then": {
+        "properties": {
+          "outcome": {
+            "properties": {"state": {"const": "pending"}},
+            "required": ["state"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {"record_type": {"const": "attempt_result"}},
+        "required": ["record_type"]
+      },
+      "then": {
+        "properties": {
+          "outcome": {
+            "properties": {
+              "state": {
+                "enum": ["completed", "failed", "timeout", "aborted", "null"]
+              }
+            },
+            "required": ["state"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "record_type": {"const": "attempt_result"},
+          "outcome": {
+            "properties": {"state": {"const": "completed"}},
+            "required": ["state"]
+          }
+        },
+        "required": ["record_type", "outcome"]
+      },
+      "then": {
+        "properties": {
+          "evidence": {
+            "properties": {
+              "raw_output": {
+                "properties": {"status": {"const": "BOUND"}},
+                "required": ["status"]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {"record_type": {"const": "score_result"}},
+        "required": ["record_type"]
+      },
+      "then": {
+        "required": ["parent_event_id"],
+        "properties": {
+          "outcome": {
+            "properties": {"state": {"enum": ["scored", "null", "failed"]}}
+          },
+          "evidence": {
+            "properties": {
+              "raw_output": {
+                "properties": {"status": {"const": "BOUND"}},
+                "required": ["status"]
+              },
+              "scorer": {
+                "properties": {"status": {"const": "BOUND"}},
+                "required": ["status"]
+              },
+              "summary": {
+                "properties": {"status": {"const": "BOUND"}},
+                "required": ["status"]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {"record_type": {"const": "historical_evidence"}},
+        "required": ["record_type"]
+      },
+      "then": {
+        "properties": {
+          "outcome": {
+            "properties": {"state": {"const": "historical"}},
+            "required": ["state"]
+          },
+          "comparison": {
+            "properties": {"class": {"const": "historical_unverified"}}
+          }
+        }
+      }
+    }
+  ]
+}

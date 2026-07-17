@@ -100,6 +100,8 @@ operator approval.
 ## Cross-repository schema boundary
 
 `research-evidence/schema-lineage-v1.json` records that Engraph and OPERANT
-currently publish different contracts under the same schema identifier. The
-contracts are not treated as one schema, and neither historical receipt is
-rewritten. Cross-repository convergence remains `REVIEW_REQUIRED_CROSS_REPO`.
+published different contracts under the same v1 schema identifier. The
+byte-identical package in `research-evidence/contracts/v2/` introduces a new
+identifier, an exact schema lock, representative records for both systems, and
+a non-rewriting compatibility map. Neither v1 producer has switched yet; the
+package status remains `CONTRACT_VALIDATED_PRODUCERS_NOT_YET_SWITCHED`.

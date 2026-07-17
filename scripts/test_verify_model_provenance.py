@@ -1,10 +1,33 @@
+import importlib.util
 import unittest
+from pathlib import Path
 from unittest import mock
 
 import verify_model_provenance
 
+CONTRACT_VERIFIER_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "research-evidence"
+    / "contracts"
+    / "v2"
+    / "verify_contract.py"
+)
+CONTRACT_SPEC = importlib.util.spec_from_file_location(
+    "engraph_contract_v2_verifier", CONTRACT_VERIFIER_PATH
+)
+assert CONTRACT_SPEC is not None and CONTRACT_SPEC.loader is not None
+contract_v2 = importlib.util.module_from_spec(CONTRACT_SPEC)
+CONTRACT_SPEC.loader.exec_module(contract_v2)
+
 
 class VerifyModelProvenanceTests(unittest.TestCase):
+    def test_shared_v2_contract_semantics(self):
+        with (
+            mock.patch.object(contract_v2, "_validate_with_reference_cli"),
+            mock.patch.object(contract_v2, "_require_reference_rejection"),
+        ):
+            contract_v2.verify()
+
     def test_repository_contracts_verify_offline(self):
         verify_model_provenance.verify()
 
@@ -36,6 +59,10 @@ class VerifyModelProvenanceTests(unittest.TestCase):
         ):
             with self.assertRaisesRegex(ValueError, "unsupported model manifest schema"):
                 verify_model_provenance.verify()
+
+    def test_shared_v2_gate_is_not_an_optimized_python_assertion(self):
+        with self.assertRaisesRegex(ValueError, "synthetic fail-closed gate"):
+            contract_v2._require(False, "synthetic fail-closed gate")
 
 
 if __name__ == "__main__":
