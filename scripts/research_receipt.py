@@ -1529,14 +1529,20 @@ def run_measured(args: argparse.Namespace) -> dict[str, Any]:
     return create_receipt(args)
 
 
-def incomplete_attempts(directory: Path) -> list[dict[str, Any]]:
+def incomplete_attempts(
+    directory: Path,
+    *,
+    attempt_id_filter: str | None = None,
+) -> list[dict[str, Any]]:
     resolved = directory.resolve()
     try:
         resolved.relative_to(ROOT)
     except ValueError as exc:
         raise ValueError("attempt directory must be inside repository") from exc
-    planned: dict[str, list[Path]] = {}
+    planned: dict[str, list[tuple[Path, list[str]]]] = {}
     terminal: dict[str, list[tuple[Path, list[str]]]] = {}
+    event_paths: dict[str, list[tuple[Path, str]]] = {}
+    terminal_plan_required: dict[str, bool] = {}
     for path in sorted(resolved.rglob("*.json")):
         try:
             value = json.loads(path.read_text(encoding="utf-8"))
@@ -1545,24 +1551,73 @@ def incomplete_attempts(directory: Path) -> list[dict[str, Any]]:
         attempt_id = value.get("attempt_id")
         if not isinstance(attempt_id, str):
             continue
+        event_id = value.get("event_id")
+        if value.get("schema") == SCHEMA_V2 and isinstance(event_id, str):
+            event_paths.setdefault(event_id, []).append((path, attempt_id))
+        if attempt_id_filter is not None and attempt_id != attempt_id_filter:
+            continue
         if value.get("record_type") == "attempt_planned":
-            planned.setdefault(attempt_id, []).append(path)
+            errors = []
+            if value.get("schema") == SCHEMA_V2:
+                errors.extend(_verify_v2_envelope(value))
+                if value.get("state") != "pending":
+                    errors.append("planned event state is not pending")
+                if value.get("parent_event_id") is not None:
+                    errors.append("planned event unexpectedly has a parent")
+            planned.setdefault(attempt_id, []).append((path, errors))
         elif value.get("record_type") == "attempt_result":
             terminal.setdefault(attempt_id, []).append((path, verify_receipt(path)))
+            terminal_plan_required[attempt_id] = (
+                terminal_plan_required.get(attempt_id, False)
+                or value.get("execution_provenance") == "tool_executed"
+                or isinstance(value.get("parent_event_id"), str)
+            )
     issues = []
+    if attempt_id_filter is not None and not planned and not terminal:
+        return [
+            {
+                "attempt_id": attempt_id_filter,
+                "status": "ATTEMPT_NOT_FOUND",
+            }
+        ]
+    for event_id, entries in sorted(event_paths.items()):
+        collision_in_scope = (
+            attempt_id_filter is None
+            or any(attempt_id == attempt_id_filter for _, attempt_id in entries)
+        )
+        if len(entries) > 1 and collision_in_scope:
+            issues.append(
+                {
+                    "event_id": event_id,
+                    "paths": [
+                        path.relative_to(ROOT).as_posix() for path, _ in entries
+                    ],
+                    "status": "AMBIGUOUS_DUPLICATE_EVENT_ID",
+                }
+            )
     for attempt_id, plan_paths in sorted(planned.items()):
         if len(plan_paths) != 1:
             issues.append(
                 {
                     "attempt_id": attempt_id,
                     "plans": [
-                        path.relative_to(ROOT).as_posix() for path in plan_paths
+                        path.relative_to(ROOT).as_posix() for path, _ in plan_paths
                     ],
                     "status": "AMBIGUOUS_DUPLICATE_PLAN",
                 }
             )
             continue
-        plan_path = plan_paths[0]
+        plan_path, plan_errors = plan_paths[0]
+        if plan_errors:
+            issues.append(
+                {
+                    "attempt_id": attempt_id,
+                    "plan": plan_path.relative_to(ROOT).as_posix(),
+                    "status": "PLANNED_EVENT_INVALID",
+                    "errors": plan_errors,
+                }
+            )
+            continue
         results = terminal.get(attempt_id, [])
         if not results:
             issues.append(
@@ -1596,6 +1651,36 @@ def incomplete_attempts(directory: Path) -> list[dict[str, Any]]:
                     "errors": errors,
                 }
             )
+    for attempt_id, results in sorted(terminal.items()):
+        if attempt_id not in planned:
+            terminal_paths = [
+                path.relative_to(ROOT).as_posix() for path, _ in results
+            ]
+            if len(results) != 1:
+                issues.append(
+                    {
+                        "attempt_id": attempt_id,
+                        "terminals": terminal_paths,
+                        "status": "AMBIGUOUS_DUPLICATE_TERMINAL",
+                    }
+                )
+            elif terminal_plan_required.get(attempt_id, False):
+                issues.append(
+                    {
+                        "attempt_id": attempt_id,
+                        "terminals": terminal_paths,
+                        "status": "ORPHAN_TERMINAL_NO_PLAN",
+                    }
+                )
+            elif results[0][1]:
+                issues.append(
+                    {
+                        "attempt_id": attempt_id,
+                        "terminal": terminal_paths[0],
+                        "status": "TERMINAL_RESULT_INVALID",
+                        "errors": results[0][1],
+                    }
+                )
     return issues
 
 
@@ -1664,6 +1749,7 @@ def main() -> None:
     verify.add_argument("receipt", type=Path)
     audit = sub.add_parser("audit-plans")
     audit.add_argument("directory", type=Path)
+    audit.add_argument("--attempt-id")
     args = parser.parse_args()
     if args.action == "create":
         print(json.dumps(create_receipt(args), sort_keys=True))
@@ -1675,7 +1761,10 @@ def main() -> None:
             raise SystemExit("\n".join(errors))
         print("OK")
     else:
-        issues = incomplete_attempts(args.directory)
+        issues = incomplete_attempts(
+            args.directory,
+            attempt_id_filter=args.attempt_id,
+        )
         print(json.dumps(issues, indent=2, sort_keys=True))
         if issues:
             raise SystemExit(1)

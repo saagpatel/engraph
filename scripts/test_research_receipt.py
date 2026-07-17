@@ -128,6 +128,7 @@ class ReceiptTests(unittest.TestCase):
             ):
                 rr.create_receipt(args)
                 self.assertEqual(rr.verify_receipt(output), [])
+                self.assertEqual(rr.incomplete_attempts(root), [])
                 with self.assertRaises(FileExistsError):
                     rr.create_receipt(args)
             raw.write_text("mutated", encoding="utf-8")
@@ -324,6 +325,13 @@ class ReceiptTests(unittest.TestCase):
                     receipt["planned_event"]["sha256"], rr.sha256(args.plan)
                 )
                 self.assertEqual(rr.verify_receipt(args.output), [])
+                self.assertEqual(
+                    rr.incomplete_attempts(
+                        root,
+                        attempt_id_filter=receipt["attempt_id"],
+                    ),
+                    [],
+                )
                 validator = shutil.which("jsonschema")
                 if validator:
                     schema = (
@@ -603,6 +611,95 @@ class ReceiptTests(unittest.TestCase):
             issues = rr.incomplete_attempts(root)
             self.assertEqual(issues[0]["status"], "AMBIGUOUS_DUPLICATE_TERMINAL")
             self.assertEqual(len(issues[0]["terminals"]), 2)
+
+    def test_attempt_inventory_rejects_invalid_v2_plan_and_duplicate_event_id(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory(dir=rr.ROOT) as tmp:
+            root = Path(tmp)
+            invalid = {
+                "schema": rr.SCHEMA_V2,
+                "record_type": "attempt_planned",
+                "run_id": "fixture-run",
+                "attempt_id": "fixture-attempt",
+                "case_id": "fixture-case",
+                "event_id": "duplicate-event",
+                "state": "pending",
+                "timestamp": "2026-07-17T00:00:00Z",
+            }
+            for index in (1, 2):
+                (root / f"plan-{index}.json").write_text(
+                    json.dumps(
+                        {
+                            **invalid,
+                            "attempt_id": f"fixture-attempt-{index}",
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+            issues = rr.incomplete_attempts(root)
+            self.assertTrue(
+                any(
+                    issue["status"] == "AMBIGUOUS_DUPLICATE_EVENT_ID"
+                    for issue in issues
+                )
+            )
+            self.assertEqual(
+                sum(
+                    issue["status"] == "PLANNED_EVENT_INVALID"
+                    for issue in issues
+                ),
+                2,
+            )
+            scoped_issues = rr.incomplete_attempts(
+                root,
+                attempt_id_filter="fixture-attempt-1",
+            )
+            self.assertTrue(
+                any(
+                    issue["status"] == "AMBIGUOUS_DUPLICATE_EVENT_ID"
+                    for issue in scoped_issues
+                )
+            )
+            self.assertEqual(
+                rr.incomplete_attempts(
+                    root,
+                    attempt_id_filter="missing-attempt",
+                ),
+                [
+                    {
+                        "attempt_id": "missing-attempt",
+                        "status": "ATTEMPT_NOT_FOUND",
+                    }
+                ],
+            )
+
+    def test_attempt_inventory_rejects_orphan_terminal(self) -> None:
+        with tempfile.TemporaryDirectory(dir=rr.ROOT) as tmp:
+            root = Path(tmp)
+            terminal = root / "orphan-result.json"
+            terminal.write_text(
+                json.dumps(
+                    {
+                        "record_type": "attempt_result",
+                        "attempt_id": "orphan-result",
+                        "execution_provenance": "tool_executed",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                rr.incomplete_attempts(root),
+                [
+                    {
+                        "attempt_id": "orphan-result",
+                        "terminals": [
+                            terminal.relative_to(rr.ROOT).as_posix()
+                        ],
+                        "status": "ORPHAN_TERMINAL_NO_PLAN",
+                    }
+                ],
+            )
 
 
 if __name__ == "__main__":

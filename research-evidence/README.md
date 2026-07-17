@@ -74,7 +74,10 @@ an absent terminal result (`INCOMPLETE_NO_TERMINAL_RESULT`) from a preserved
 terminal receipt that no longer verifies against the current checkout
 (`TERMINAL_RESULT_INVALID`). Duplicate plan or terminal IDs are explicit
 `AMBIGUOUS_DUPLICATE_*` failures rather than last-path-wins; none of these
-conditions is silently converted to a pass.
+conditions is silently converted to a pass. V2 plans are also checked for a
+complete fail-closed envelope and globally unique event identity. Use
+`--attempt-id <id>` to evaluate one new attempt without allowing an unrelated
+historical failure to become either its pass or its failure.
 
 Receipts contain a canonical self-digest for accidental corruption detection.
 The digest is stored beside editable metadata and is not authentication. They
@@ -103,5 +106,7 @@ operator approval.
 published different contracts under the same v1 schema identifier. The
 byte-identical package in `research-evidence/contracts/v2/` introduces a new
 identifier, an exact schema lock, representative records for both systems, and
-a non-rewriting compatibility map. Neither v1 producer has switched yet; the
-package status remains `CONTRACT_VALIDATED_PRODUCERS_NOT_YET_SWITCHED`.
+a non-rewriting compatibility map. Both producers now retain v1 readers and use
+v2 for new controlled writes. The package status is
+`DUAL_READ_NEW_WRITE_V2_SYNTHETICALLY_VALIDATED`; no authentic post-adoption
+model or provider run has yet upgraded that status beyond synthetic validation.
