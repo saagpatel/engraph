@@ -1,0 +1,45 @@
+{
+  "schema": "research-citation-ledger.v1",
+  "as_of": "2026-07-17",
+  "source_record": "engraph@fable/t1-gate-verdict:fable-explore/05-research-notes.md",
+  "source_record_status": "NOT_PRESENT_ON_THIS_P3_BRANCH",
+  "claims": [
+    {
+      "claim_id": "llama-context-reuse-production-practice",
+      "status": "SUPPORTED",
+      "canonical_identifiers": [
+        "https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md",
+        "https://github.com/ggml-org/llama.cpp/blob/master/examples/embedding/embedding.cpp"
+      ],
+      "consulted_version": "UNKNOWN_MUTABLE_MASTER",
+      "access_date": "2026-07-17",
+      "source_hash": "UNKNOWN",
+      "archive_status": "NOT_CAPTURED",
+      "authority_tier": "primary_upstream",
+      "supersession_relation": "UNKNOWN"
+    },
+    {
+      "claim_id": "sqlite-vec-performance-figures",
+      "status": "REQUIRES_PRIMARY_CONFIRMATION_BEFORE_PUBLIC_CITATION",
+      "canonical_identifier": "https://alexgarcia.xyz/blog/2024/sqlite-vec-stable-release/",
+      "consulted_version": "UNKNOWN",
+      "access_date": "2026-07-17",
+      "source_hash": "UNKNOWN",
+      "archive_status": "NOT_CAPTURED",
+      "authority_tier": "secondary_search_synthesis",
+      "supersession_relation": "UNKNOWN"
+    },
+    {
+      "claim_id": "whole-hybrid-pipeline-whitespace",
+      "status": "SPECULATIVE_DATED_SEARCH_RESULT",
+      "canonical_identifier": "local-search-synthesis",
+      "consulted_version": "2026-07-17 audit qualification",
+      "access_date": "2026-07-17",
+      "source_hash": "UNKNOWN",
+      "archive_status": "NEGATIVE_SEARCH_NOT_PRESERVED",
+      "authority_tier": "mixed",
+      "supersession_relation": "UNKNOWN",
+      "qualification": "No example was found in the undocumented search; nobody-has-built is not established."
+    }
+  ]
+}

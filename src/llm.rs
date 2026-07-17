@@ -377,9 +377,53 @@ impl HfModelUri {
     }
 }
 
-/// Download a file with progress bar and optional SHA256 verification. Retries once on failure.
-pub fn download_model(url: &str, dest: &Path, expected_sha256: Option<&str>) -> Result<()> {
-    fn try_download(url: &str, dest: &Path, expected_sha256: Option<&str>) -> Result<()> {
+#[derive(Debug, Clone, serde::Deserialize)]
+struct ModelManifest {
+    schema: String,
+    models: Vec<ModelManifestEntry>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+struct ModelManifestEntry {
+    uri: String,
+    artifact_sha256: String,
+}
+
+fn manifested_model(uri: &HfModelUri) -> Result<ModelManifestEntry> {
+    let manifest: ModelManifest =
+        serde_json::from_str(include_str!("../models/model-manifest-v1.json"))
+            .context("parsing embedded model manifest")?;
+    if manifest.schema != "engraph-model-manifest.v1" {
+        bail!(
+            "unsupported embedded model manifest schema: {}",
+            manifest.schema
+        );
+    }
+    let identity = format!("hf:{}/{}", uri.repo, uri.filename);
+    let entry = manifest
+        .models
+        .into_iter()
+        .find(|entry| entry.uri == identity)
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "model {identity} is not pinned in models/model-manifest-v1.json; \
+                 refusing unverified cache use or download"
+            )
+        })?;
+    if entry.artifact_sha256.len() != 64
+        || !entry
+            .artifact_sha256
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit())
+    {
+        bail!("invalid SHA-256 in model manifest for {identity}");
+    }
+    Ok(entry)
+}
+
+/// Download a file with mandatory SHA256 verification. Retries once on failure.
+pub fn download_model(url: &str, dest: &Path, expected_sha256: &str) -> Result<()> {
+    fn try_download(url: &str, dest: &Path, expected_sha256: &str) -> Result<()> {
         tracing::info!("downloading {} -> {}", url, dest.display());
 
         let resp = ureq::get(url)
@@ -422,16 +466,13 @@ pub fn download_model(url: &str, dest: &Path, expected_sha256: Option<&str>) -> 
         }
         pb.finish_with_message("done");
 
-        // Verify hash if provided.
-        if let Some(expected) = expected_sha256 {
-            let actual = sha256_file(&tmp_path)?;
-            if actual != expected {
-                let _ = std::fs::remove_file(&tmp_path);
-                bail!(
-                    "SHA-256 mismatch for {}: expected {expected}, got {actual}",
-                    dest.display()
-                );
-            }
+        let actual = sha256_file(&tmp_path)?;
+        if actual != expected_sha256 {
+            let _ = std::fs::remove_file(&tmp_path);
+            bail!(
+                "SHA-256 mismatch for {}: expected {expected_sha256}, got {actual}",
+                dest.display()
+            );
         }
 
         std::fs::rename(&tmp_path, dest).map_err(|e| anyhow::anyhow!("renaming temp file: {e}"))?;
@@ -467,12 +508,22 @@ fn sha256_file(path: &Path) -> Result<String> {
 
 /// Ensure a model is present locally, downloading if not cached.
 pub fn ensure_model(uri: &HfModelUri, models_dir: &Path) -> Result<PathBuf> {
+    let entry = manifested_model(uri)?;
     let path = uri.cache_path(models_dir);
-    if !path.exists() {
+    if path.exists() {
+        let actual = sha256_file(&path)?;
+        if actual != entry.artifact_sha256 {
+            bail!(
+                "cached model SHA-256 mismatch for {}: expected {}, got {actual}",
+                path.display(),
+                entry.artifact_sha256
+            );
+        }
+    } else {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        download_model(&uri.download_url(), &path, None)?;
+        download_model(&uri.download_url(), &path, &entry.artifact_sha256)?;
     }
     Ok(path)
 }
@@ -1649,6 +1700,36 @@ mod tests {
             defaults.embed_uri.contains("embeddinggemma"),
             "default embed model should be embeddinggemma"
         );
+    }
+
+    #[test]
+    fn test_default_models_are_manifested_with_sha256() {
+        let defaults = ModelDefaults::default();
+        for uri_text in [defaults.embed_uri, defaults.rerank_uri, defaults.expand_uri] {
+            let uri = HfModelUri::parse(&uri_text).unwrap();
+            let entry = manifested_model(&uri).unwrap();
+            assert_eq!(entry.artifact_sha256.len(), 64);
+        }
+    }
+
+    #[test]
+    fn test_unmanifested_model_fails_before_download() {
+        let tmp = tempfile::tempdir().unwrap();
+        let uri = HfModelUri::parse("hf:example/unpinned/model.gguf").unwrap();
+        let error = ensure_model(&uri, tmp.path()).unwrap_err().to_string();
+        assert!(error.contains("not pinned"));
+        assert!(!uri.cache_path(tmp.path()).exists());
+    }
+
+    #[test]
+    fn test_cached_model_hash_mismatch_fails_closed() {
+        let tmp = tempfile::tempdir().unwrap();
+        let defaults = ModelDefaults::default();
+        let uri = HfModelUri::parse(&defaults.embed_uri).unwrap();
+        let path = uri.cache_path(tmp.path());
+        std::fs::write(&path, b"not the manifested model").unwrap();
+        let error = ensure_model(&uri, tmp.path()).unwrap_err().to_string();
+        assert!(error.contains("cached model SHA-256 mismatch"));
     }
 
     // ── LlamaEmbed / PromptFormat tests ────────────────────────────────────

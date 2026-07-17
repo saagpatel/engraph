@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/research-claim-run-manifest-v1.schema.json",
+  "title": "Research Claim Run Manifest V1",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "schema",
+    "record_type",
+    "run_id",
+    "attempt_id",
+    "timestamp",
+    "state",
+    "case_id",
+    "raw_output_sha256",
+    "scorer_sha256",
+    "summary_sha256",
+    "comparability_class"
+  ],
+  "properties": {
+    "schema": {"const": "research-claim-run-manifest.v1"},
+    "record_type": {
+      "enum": ["attempt_planned", "attempt_result", "score_result", "historical_evidence"]
+    },
+    "run_id": {"type": "string", "minLength": 1},
+    "attempt_id": {"type": "string", "minLength": 1},
+    "timestamp": {"type": "string", "format": "date-time"},
+    "state": {
+      "enum": ["pending", "completed", "failed", "timeout", "aborted", "null", "scored", "historical"]
+    },
+    "comparability_class": {
+      "enum": [
+        "unclassified",
+        "same_manifest_attempt",
+        "exact_reproduction",
+        "hardware_variant",
+        "runtime_variant",
+        "incomparable",
+        "historical_unverified"
+      ]
+    }
+  }
+}
