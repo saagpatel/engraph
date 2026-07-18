@@ -14,6 +14,22 @@ import research_receipt as rr
 
 
 class ReceiptTests(unittest.TestCase):
+    def test_committed_a2_record_is_clone_verifiable(self) -> None:
+        receipt = (
+            rr.ROOT
+            / "research-evidence/runs/"
+            "p3-actor-parity-v2-20260717-a2.receipt.json"
+        )
+        self.assertEqual(rr.verify_receipt_record(receipt), [])
+        self.assertEqual(
+            rr.incomplete_attempts(
+                rr.ROOT / "research-evidence/runs",
+                attempt_id_filter="076b69d2-3a1f-40d6-9555-9c7cc6c69302",
+                record_only=True,
+            ),
+            [],
+        )
+
     def test_v2_verifier_rejects_rights_and_artifact_overclaims(self) -> None:
         representatives = json.loads(
             (
@@ -101,8 +117,9 @@ class ReceiptTests(unittest.TestCase):
             rr._safe_command_argv(["tool", "--tokenizer", "embedded"]),
             ["tool", "--tokenizer", "embedded"],
         )
+        home_input = Path.home() / "private" / "file"
         self.assertEqual(
-            rr._safe_command_argv(["tool", "--input=/Users/d/private/file"])[1],
+            rr._safe_command_argv(["tool", f"--input={home_input}"])[1],
             "--input=$HOME/private/file",
         )
         with self.assertRaisesRegex(ValueError, "secret-bearing"):

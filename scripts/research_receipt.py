@@ -1422,6 +1422,15 @@ def verify_receipt(path: Path) -> list[str]:
     return errors
 
 
+def verify_receipt_record(path: Path) -> list[str]:
+    """Verify a committed receipt without claiming external-byte custody."""
+    return [
+        error
+        for error in verify_receipt(path)
+        if error not in TERMINAL_UNAVAILABLE_ERRORS
+    ]
+
+
 def _write_exclusive_json(path: Path, value: dict[str, Any]) -> None:
     path = path.resolve()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -1586,6 +1595,7 @@ def incomplete_attempts(
     directory: Path,
     *,
     attempt_id_filter: str | None = None,
+    record_only: bool = False,
 ) -> list[dict[str, Any]]:
     resolved = directory.resolve()
     try:
@@ -1619,7 +1629,12 @@ def incomplete_attempts(
                     errors.append("planned event unexpectedly has a parent")
             planned.setdefault(attempt_id, []).append((path, errors))
         elif value.get("record_type") == "attempt_result":
-            terminal.setdefault(attempt_id, []).append((path, verify_receipt(path)))
+            receipt_errors = (
+                verify_receipt_record(path)
+                if record_only
+                else verify_receipt(path)
+            )
+            terminal.setdefault(attempt_id, []).append((path, receipt_errors))
             terminal_plan_required[attempt_id] = (
                 terminal_plan_required.get(attempt_id, False)
                 or value.get("execution_provenance") == "tool_executed"
@@ -1801,9 +1816,16 @@ def main() -> None:
     run.add_argument("measured_command", nargs=argparse.REMAINDER)
     verify = sub.add_parser("verify")
     verify.add_argument("receipt", type=Path)
+    verify_record = sub.add_parser("verify-record")
+    verify_record.add_argument("receipt", type=Path)
     audit = sub.add_parser("audit-plans")
     audit.add_argument("directory", type=Path)
     audit.add_argument("--attempt-id")
+    audit.add_argument(
+        "--record-only",
+        action="store_true",
+        help="do not claim custody of unavailable external artifacts",
+    )
     args = parser.parse_args()
     if args.action == "create":
         print(json.dumps(create_receipt(args), sort_keys=True))
@@ -1814,10 +1836,16 @@ def main() -> None:
         if errors:
             raise SystemExit("\n".join(errors))
         print("OK")
+    elif args.action == "verify-record":
+        errors = verify_receipt_record(args.receipt)
+        if errors:
+            raise SystemExit("\n".join(errors))
+        print("OK: receipt record verified; external byte custody not claimed")
     else:
         issues = incomplete_attempts(
             args.directory,
             attempt_id_filter=args.attempt_id,
+            record_only=args.record_only,
         )
         print(json.dumps(issues, indent=2, sort_keys=True))
         if issues:
