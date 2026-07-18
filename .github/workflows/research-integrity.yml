@@ -4,35 +4,9 @@ on:
   pull_request:
     branches:
       - feat/engraph-p3-perf
-    paths:
-      - models/**
-      - research-evidence/**
-      - scripts/research_receipt.py
-      - scripts/test_research_receipt.py
-      - scripts/test_verify_*.py
-      - scripts/verify_*.py
-      - examples/p3_actor_parity.rs
-      - src/llm.rs
-      - src/serve.rs
-      - Cargo.lock
-      - target/release/examples/p3_actor_parity
-      - .github/workflows/research-integrity.yml
   push:
     branches:
       - feat/engraph-p3-perf
-    paths:
-      - models/**
-      - research-evidence/**
-      - scripts/research_receipt.py
-      - scripts/test_research_receipt.py
-      - scripts/test_verify_*.py
-      - scripts/verify_*.py
-      - examples/p3_actor_parity.rs
-      - src/llm.rs
-      - src/serve.rs
-      - Cargo.lock
-      - target/release/examples/p3_actor_parity
-      - .github/workflows/research-integrity.yml
 
 permissions:
   contents: read
