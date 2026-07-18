@@ -1,0 +1,27 @@
+{
+  "schema": "engraph-historical-claim-boundary.v1",
+  "as_of": "2026-07-17",
+  "claims": [
+    {
+      "claim": "T1 packed multi-sequence encoding loses at production-sized inputs",
+      "status": "SUPPORTED_LOCAL_HISTORICAL_OBSERVATION",
+      "exact_ratios": "UNKNOWN",
+      "cross_host_transfer": "UNKNOWN",
+      "raw_receipt": "UNKNOWN",
+      "model_digest_at_run": "UNKNOWN"
+    },
+    {
+      "claim": "P3 reused-context actor produced a 1.67x query-path speedup",
+      "status": "HISTORICAL_UNVERIFIED",
+      "exact_ratio": "UNKNOWN",
+      "cross_host_transfer": "UNKNOWN",
+      "raw_receipt": "UNKNOWN",
+      "model_digest_at_run": "UNKNOWN"
+    },
+    {
+      "claim": "P6 is retired",
+      "status": "SCOPED_TO_TESTED_MACHINE_MODEL_CONFIGURATION",
+      "universal_retirement": "NOT_ESTABLISHED"
+    }
+  ]
+}

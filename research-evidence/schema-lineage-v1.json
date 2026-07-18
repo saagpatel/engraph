@@ -1,0 +1,23 @@
+{
+  "schema": "research-claim-schema-lineage.v1",
+  "recorded_at": "2026-07-17",
+  "shared_identifier": "https://local.invalid/research-claim-run-manifest-v1.schema.json",
+  "compatibility": "INCOMPATIBLE_SAME_IDENTIFIER",
+  "claim_boundary": "This records a verified contract collision without replacing either schema or rewriting any historical receipt.",
+  "contracts": [
+    {
+      "system": "Engraph",
+      "repository_commit": "8159c6dc12d80c6e0713ae98de891efa9e9714f6",
+      "repository_relative_path": "research-evidence/research-claim-run-manifest-v1.schema.json",
+      "sha256": "69e967056ff9499127b2c7e3ce557222cd8cfbd161eff4a37037acbaf50ffdf8"
+    },
+    {
+      "system": "OPERANT",
+      "repository_commit": "5cc91e279a347a20d26249aab161377a0ab44311",
+      "repository_relative_path": "agent_eval/operant/research-claim-run-manifest-v1.schema.json",
+      "sha256": "497f8a3938caacc51a80ce5c0f7e288f41250461560edcc06d6435f14117669f"
+    }
+  ],
+  "migration_status": "REVIEW_REQUIRED_CROSS_REPO",
+  "historical_receipt_action": "PRESERVED_UNCHANGED"
+}

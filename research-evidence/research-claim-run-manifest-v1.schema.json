@@ -1,0 +1,266 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.invalid/research-claim-run-manifest-v1.schema.json",
+  "title": "Research Claim Run Manifest V1",
+  "type": "object",
+  "additionalProperties": true,
+  "$defs": {
+    "repoArtifact": {
+      "type": "object",
+      "required": [
+        "path",
+        "bytes",
+        "sha256"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "repository": {
+      "type": "object",
+      "required": [
+        "commit",
+        "branch",
+        "dirty",
+        "dirty_state_sha256",
+        "tracked_diff_sha256",
+        "untracked",
+        "replay_material"
+      ],
+      "properties": {
+        "commit": {
+          "type": "string",
+          "minLength": 1
+        },
+        "branch": {
+          "type": "string",
+          "minLength": 1
+        },
+        "dirty": {
+          "type": "boolean"
+        },
+        "dirty_state_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "tracked_diff_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "untracked": {
+          "type": "array"
+        },
+        "replay_material": {
+          "enum": [
+            "clean_commit",
+            "digest_only_not_reconstructable"
+          ]
+        }
+      }
+    }
+  },
+  "required": [
+    "schema",
+    "record_type",
+    "run_id",
+    "attempt_id",
+    "timestamp",
+    "state",
+    "case_id",
+    "comparability_class"
+  ],
+  "properties": {
+    "schema": {
+      "const": "research-claim-run-manifest.v1"
+    },
+    "record_type": {
+      "enum": [
+        "attempt_planned",
+        "attempt_result",
+        "score_result",
+        "historical_evidence"
+      ]
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "attempt_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "state": {
+      "enum": [
+        "pending",
+        "completed",
+        "failed",
+        "timeout",
+        "aborted",
+        "null",
+        "scored",
+        "historical"
+      ]
+    },
+    "exit_code": {
+      "type": "integer"
+    },
+    "execution_provenance": {
+      "enum": [
+        "tool_executed",
+        "posthoc_declared"
+      ]
+    },
+    "sensitivity": {
+      "enum": [
+        "synthetic",
+        "public_non_sensitive"
+      ]
+    },
+    "process_policy": {
+      "enum": [
+        "group_contained",
+        "source_reviewed_no_process_spawning"
+      ]
+    },
+    "raw_output": {
+      "$ref": "#/$defs/repoArtifact"
+    },
+    "planned_event": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/repoArtifact"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "path": {
+              "const": "UNKNOWN"
+            }
+          },
+          "required": [
+            "path"
+          ]
+        }
+      ]
+    },
+    "repository": {
+      "$ref": "#/$defs/repository"
+    },
+    "repository_after": {
+      "$ref": "#/$defs/repository"
+    },
+    "model": {
+      "type": "object",
+      "required": [
+        "home_relative_path",
+        "bytes",
+        "sha256",
+        "uri",
+        "manifest_sha256",
+        "object_identity",
+        "acquisition",
+        "tokenizer"
+      ]
+    },
+    "runtime": {
+      "type": "object",
+      "required": [
+        "os",
+        "os_release",
+        "architecture",
+        "hardware",
+        "python",
+        "rustc",
+        "cargo",
+        "cmake",
+        "research_environment",
+        "environment_capture"
+      ]
+    },
+    "receipt_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "comparability_class": {
+      "enum": [
+        "unclassified",
+        "same_manifest_attempt",
+        "hardware_variant",
+        "runtime_variant",
+        "incomparable",
+        "historical_unverified"
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "record_type": {
+            "const": "attempt_result"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "state": {
+            "enum": [
+              "completed",
+              "failed",
+              "timeout",
+              "aborted",
+              "null"
+            ]
+          },
+          "comparability_class": {
+            "enum": [
+              "same_manifest_attempt",
+              "hardware_variant",
+              "runtime_variant",
+              "incomparable"
+            ]
+          }
+        },
+        "required": [
+          "run_started_at",
+          "run_ended_at",
+          "exit_code",
+          "execution_provenance",
+          "sensitivity",
+          "process_policy",
+          "planned_event",
+          "raw_output",
+          "raw_output_sha256",
+          "scorer_sha256",
+          "summary_sha256",
+          "model",
+          "repository",
+          "repository_after",
+          "dependencies",
+          "configuration",
+          "input_manifest",
+          "runtime",
+          "runtime_after",
+          "seed",
+          "settings",
+          "receipt_sha256"
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,125 @@
+{
+  "schema": "research-claim-run-manifest-v2-representatives.v1",
+  "records": [
+    {
+      "schema": "research-claim-run-manifest.v2",
+      "contract": {
+        "id": "https://schemas.local.invalid/research-claim-run-manifest/v2/schema.json",
+        "sha256": "a278934b14bdfcf4bb911680c0f67f58ec9a3a2fb1f62e78d47e70dbcc298d43",
+        "source_schema": "OPERANT_V1_ADAPTER"
+      },
+      "producer": {"system": "OPERANT", "version": "representative-v2"},
+      "record_type": "attempt_result",
+      "event_id": "operant-attempt-event-0001",
+      "run_id": "synthetic-operant-run",
+      "attempt_id": "synthetic-operant-attempt",
+      "timestamp": "2026-07-17T00:00:00Z",
+      "case_id": "synthetic-case",
+      "outcome": {
+        "state": "completed",
+        "started_at": "2026-07-17T00:00:00Z",
+        "ended_at": "2026-07-17T00:00:01Z",
+        "exit_code": 0,
+        "failure_reason": "",
+        "null_reason": ""
+      },
+      "evidence": {
+        "exact_input": {"status": "BOUND", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "bytes": 10, "locator_kind": "content_addressed", "locator": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+        "case": {"status": "BOUND", "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "bytes": 10, "locator_kind": "content_addressed", "locator": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+        "prompt": {"status": "BOUND", "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "bytes": 10, "locator_kind": "content_addressed", "locator": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},
+        "system_harness": {"status": "BOUND", "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "bytes": 10, "locator_kind": "content_addressed", "locator": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"},
+        "dependency_lock": {"status": "BOUND", "sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", "bytes": 10, "locator_kind": "repository_relative", "locator": "uv.lock"},
+        "model": {"status": "UNKNOWN", "reason": "Provider artifact bytes are unavailable."},
+        "tokenizer": {"status": "UNKNOWN", "reason": "Provider tokenizer bytes are unavailable."},
+        "raw_output": {"status": "BOUND", "sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", "bytes": 10, "locator_kind": "evidence_root_relative", "locator": "reports/attempt.txt", "sensitivity": "synthetic"},
+        "scorer": {"status": "BOUND", "sha256": "1111111111111111111111111111111111111111111111111111111111111111", "bytes": 10, "locator_kind": "repository_relative", "locator": "agent_eval/operant/score_operant.py"},
+        "summary": {"status": "BOUND", "sha256": "2222222222222222222222222222222222222222222222222222222222222222", "bytes": 10, "locator_kind": "evidence_root_relative", "locator": "scores/result.json"}
+      },
+      "repository": {"commit": "1111111111111111111111111111111111111111", "branch": "synthetic", "dirty": false, "dirty_state_sha256": "3333333333333333333333333333333333333333333333333333333333333333", "replay_material": "clean_commit"},
+      "environment": {
+        "cli": {"status": "BOUND", "sha256": "4444444444444444444444444444444444444444444444444444444444444444"},
+        "runtime": {"status": "BOUND", "sha256": "5555555555555555555555555555555555555555555555555555555555555555"},
+        "toolchain": {"status": "BOUND", "sha256": "6666666666666666666666666666666666666666666666666666666666666666"},
+        "hardware": {"status": "BOUND", "sha256": "7777777777777777777777777777777777777777777777777777777777777777"},
+        "os": {"status": "BOUND", "sha256": "8888888888888888888888888888888888888888888888888888888888888888"},
+        "seed": {"status": "UNKNOWN", "reason": "Provider does not expose seed control."},
+        "settings": {"status": "BOUND", "sha256": "9999999999999999999999999999999999999999999999999999999999999999"}
+      },
+      "model_identity": {"requested": "provider/model-alias", "observed": ["provider/model-alias"], "artifact_sha256": "UNKNOWN", "tokenizer_sha256": "UNKNOWN"},
+      "rights": {
+        "declared_license": {"status": "UNKNOWN", "value": "UNKNOWN", "reason": "No declared-license source is bound.", "evidence": {"status": "UNKNOWN", "reason": "No versioned license artifact is bound."}},
+        "license_conclusion": {"status": "NOT_ASSERTED", "reason": "No legal conclusion is authorized.", "evidence": {"status": "UNKNOWN", "reason": "No versioned license evidence is bound to this synthetic record."}},
+        "consent_status": {"status": "UNKNOWN", "reason": "Consent evidence is unavailable.", "evidence": {"status": "UNKNOWN", "reason": "No consent artifact is bound."}},
+        "redistribution_status": {"status": "UNKNOWN", "reason": "Redistribution rights were not established.", "evidence": {"status": "UNKNOWN", "reason": "No redistribution artifact is bound."}},
+        "derivative_use_status": {"status": "UNKNOWN", "reason": "Derivative-use rights were not established.", "evidence": {"status": "UNKNOWN", "reason": "No derivative-use artifact is bound."}}
+      },
+      "comparison": {"class": "same_manifest_attempt", "baseline": {"status": "UNKNOWN", "reason": "No authenticated external baseline."}, "errors": []},
+      "integrity": {"self_digest": {"status": "UNKNOWN", "reason": "Canonical self-digest production is not implemented by the v1 adapter."}, "canonicalization": "UNKNOWN", "authentication": "UNKNOWN"},
+      "extensions": {"operant": {"comparison_fingerprint": "preserved-by-adapter"}}
+    },
+    {
+      "schema": "research-claim-run-manifest.v2",
+      "contract": {
+        "id": "https://schemas.local.invalid/research-claim-run-manifest/v2/schema.json",
+        "sha256": "a278934b14bdfcf4bb911680c0f67f58ec9a3a2fb1f62e78d47e70dbcc298d43",
+        "source_schema": "ENGRAPH_V1_ADAPTER"
+      },
+      "producer": {"system": "ENGRAPH", "version": "representative-v2"},
+      "record_type": "attempt_result",
+      "event_id": "engraph-attempt-event-0001",
+      "run_id": "synthetic-engraph-run",
+      "attempt_id": "synthetic-engraph-attempt",
+      "timestamp": "2026-07-17T00:00:00Z",
+      "case_id": "synthetic-parity-case",
+      "outcome": {
+        "state": "completed",
+        "started_at": "2026-07-17T00:00:00Z",
+        "ended_at": "2026-07-17T00:00:01Z",
+        "exit_code": 0,
+        "failure_reason": "",
+        "null_reason": ""
+      },
+      "evidence": {
+        "exact_input": {"status": "BOUND", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "bytes": 10, "locator_kind": "repository_relative", "locator": "research-evidence/runs/plan.json"},
+        "case": {"status": "BOUND", "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "bytes": 10, "locator_kind": "repository_relative", "locator": "examples/p3_actor_parity.rs"},
+        "prompt": {"status": "BOUND", "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "bytes": 10, "locator_kind": "repository_relative", "locator": "examples/p3_actor_parity.rs"},
+        "system_harness": {"status": "BOUND", "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "bytes": 10, "locator_kind": "repository_relative", "locator": "scripts/research_receipt.py"},
+        "dependency_lock": {"status": "BOUND", "sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", "bytes": 10, "locator_kind": "repository_relative", "locator": "Cargo.lock"},
+        "model": {"status": "BOUND", "sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", "bytes": 10, "locator_kind": "home_relative", "locator": ".engraph/models/model.gguf", "sensitivity": "private_not_embedded"},
+        "tokenizer": {"status": "BOUND", "sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", "bytes": 10, "locator_kind": "content_addressed", "locator": "embedded-in-model"},
+        "raw_output": {"status": "BOUND", "sha256": "1111111111111111111111111111111111111111111111111111111111111111", "bytes": 10, "locator_kind": "repository_relative", "locator": "research-evidence/runs/raw.txt", "sensitivity": "synthetic"},
+        "scorer": {"status": "UNKNOWN", "reason": "Correctness parity is enforced by the executable."},
+        "summary": {"status": "UNKNOWN", "reason": "No separate summary artifact."}
+      },
+      "repository": {"commit": "2222222222222222222222222222222222222222", "branch": "synthetic", "dirty": false, "dirty_state_sha256": "2222222222222222222222222222222222222222222222222222222222222222", "replay_material": "clean_commit"},
+      "environment": {
+        "cli": {"status": "BOUND", "sha256": "3333333333333333333333333333333333333333333333333333333333333333"},
+        "runtime": {"status": "BOUND", "sha256": "4444444444444444444444444444444444444444444444444444444444444444"},
+        "toolchain": {"status": "BOUND", "sha256": "5555555555555555555555555555555555555555555555555555555555555555"},
+        "hardware": {"status": "BOUND", "sha256": "6666666666666666666666666666666666666666666666666666666666666666"},
+        "os": {"status": "BOUND", "sha256": "7777777777777777777777777777777777777777777777777777777777777777"},
+        "seed": {"status": "BOUND", "sha256": "8888888888888888888888888888888888888888888888888888888888888888"},
+        "settings": {"status": "BOUND", "sha256": "9999999999999999999999999999999999999999999999999999999999999999"}
+      },
+      "model_identity": {"requested": "hf:example/model/model.gguf", "observed": ["sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"], "artifact_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", "tokenizer_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"},
+      "rights": {
+        "declared_license": {"status": "UNKNOWN", "value": "UNKNOWN", "reason": "No declared-license source is bound.", "evidence": {"status": "UNKNOWN", "reason": "No versioned license artifact is bound."}},
+        "license_conclusion": {"status": "NOT_ASSERTED", "reason": "No legal conclusion is authorized.", "evidence": {"status": "UNKNOWN", "reason": "No versioned license evidence is bound to this synthetic record."}},
+        "consent_status": {"status": "UNKNOWN", "reason": "Consent evidence is unavailable.", "evidence": {"status": "UNKNOWN", "reason": "No consent artifact is bound."}},
+        "redistribution_status": {"status": "UNKNOWN", "reason": "Redistribution rights were not established.", "evidence": {"status": "UNKNOWN", "reason": "No redistribution artifact is bound."}},
+        "derivative_use_status": {"status": "UNKNOWN", "reason": "Derivative-use rights were not established.", "evidence": {"status": "UNKNOWN", "reason": "No derivative-use artifact is bound."}}
+      },
+      "comparison": {"class": "same_manifest_attempt", "baseline": {"status": "UNKNOWN", "reason": "No authenticated external baseline."}, "errors": []},
+      "integrity": {"self_digest": {"status": "UNKNOWN", "reason": "Canonical self-digest production is not implemented by the v1 adapter."}, "canonicalization": "UNKNOWN", "authentication": "UNKNOWN"},
+      "extensions": {"engraph": {"timing": "disabled"}}
+    }
+  ],
+  "score_derivations": [
+    {
+      "parent_event_id": "operant-attempt-event-0001",
+      "event_id": "operant-score-event-0001",
+      "record_type": "score_result",
+      "state": "scored"
+    }
+  ]
+}

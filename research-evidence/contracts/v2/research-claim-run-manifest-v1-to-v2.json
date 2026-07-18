@@ -1,0 +1,50 @@
+{
+  "schema": "research-claim-run-manifest-compatibility.v1",
+  "target_contract_id": "https://schemas.local.invalid/research-claim-run-manifest/v2/schema.json",
+  "target_contract_sha256": "a278934b14bdfcf4bb911680c0f67f58ec9a3a2fb1f62e78d47e70dbcc298d43",
+  "collision": {
+    "status": "INCOMPATIBLE_SAME_V1_IDENTIFIER",
+    "shared_v1_id": "https://local.invalid/research-claim-run-manifest-v1.schema.json",
+    "operant_v1_sha256": "497f8a3938caacc51a80ce5c0f7e288f41250461560edcc06d6435f14117669f",
+    "engraph_v1_sha256": "69e967056ff9499127b2c7e3ce557222cd8cfbd161eff4a37037acbaf50ffdf8"
+  },
+  "migration_policy": {
+    "mode": "COPY_FORWARD_NEW_EVENT_ONLY",
+    "historical_v1_action": "PRESERVE_UNCHANGED",
+    "missing_field_action": "EXPLICIT_UNKNOWN_WITH_REASON",
+    "exact_reproduction_action": "REJECT_AUTOMATIC_MAPPING_REQUIRES_MANUAL_CLASSIFICATION",
+    "legal_inference": "PROHIBITED",
+    "consent_inference": "PROHIBITED"
+  },
+  "shared_field_map": [
+    {"v1": "run_id", "v2": "run_id", "mode": "DIRECT"},
+    {"v1": "attempt_id", "v2": "attempt_id", "mode": "DIRECT"},
+    {"v1": "timestamp", "v2": "timestamp", "mode": "DIRECT"},
+    {"v1": "case_id", "v2": "case_id", "mode": "DIRECT"},
+    {"v1": "state", "v2": "outcome.state", "mode": "DIRECT"},
+    {"v1": "comparability_class", "v2": "comparison.class", "mode": "VALIDATED_ENUM_MAP"},
+    {"v1": null, "v2": "event_id", "mode": "NEW_REQUIRED_ID"},
+    {"v1": null, "v2": "contract", "mode": "NEW_REQUIRED_BINDING"},
+    {"v1": null, "v2": "rights", "mode": "UNKNOWN_UNLESS_DIRECT_EVIDENCE"}
+  ],
+  "operant_v1_map": [
+    {"v1": "input_sha256", "v2": "evidence.exact_input.sha256", "mode": "DIGEST_ONLY_LOCATOR_UNKNOWN"},
+    {"v1": "case_prompt_sha256", "v2": "evidence.prompt.sha256", "mode": "DIGEST_ONLY_LOCATOR_UNKNOWN"},
+    {"v1": "system_prompt_sha256+harness_sha256", "v2": "evidence.system_harness", "mode": "ADAPTER_COMPOSITE"},
+    {"v1": "requested_model", "v2": "model_identity.requested", "mode": "DIRECT"},
+    {"v1": "observed_models", "v2": "model_identity.observed", "mode": "DIRECT_OR_UNKNOWN"},
+    {"v1": "raw_output_sha256+output_path", "v2": "evidence.raw_output", "mode": "BOUND_WHEN_BYTES_AND_HASH_VERIFY"},
+    {"v1": "comparison_fingerprint+case_fingerprint", "v2": "extensions.operant", "mode": "PRESERVE_EXTENSION"}
+  ],
+  "engraph_v1_map": [
+    {"v1": "prompt_or_fixture", "v2": "evidence.prompt", "mode": "DIRECT_ARTIFACT"},
+    {"v1": "planned_event", "v2": "evidence.exact_input", "mode": "DIRECT_ARTIFACT"},
+    {"v1": "dependencies", "v2": "evidence.dependency_lock+environment.toolchain", "mode": "ADAPTER_SPLIT"},
+    {"v1": "model", "v2": "evidence.model+evidence.tokenizer+model_identity", "mode": "ADAPTER_SPLIT"},
+    {"v1": "raw_output", "v2": "evidence.raw_output", "mode": "DIRECT_ARTIFACT"},
+    {"v1": "scorer", "v2": "evidence.scorer", "mode": "DIRECT_OR_UNKNOWN"},
+    {"v1": "summary", "v2": "evidence.summary", "mode": "DIRECT_OR_UNKNOWN"},
+    {"v1": "runtime+runtime_after", "v2": "environment", "mode": "ADAPTER_COMPOSITE"}
+  ],
+  "adoption_status": "DUAL_READ_NEW_WRITE_V2_SYNTHETICALLY_VALIDATED"
+}

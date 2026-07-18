@@ -1,0 +1,9 @@
+{"gate":"doc_parity","words":8,"max_abs_diff":0e0,"bit_identical":true}
+{"gate":"doc_parity","words":32,"max_abs_diff":0e0,"bit_identical":true}
+{"gate":"doc_parity","words":128,"max_abs_diff":0e0,"bit_identical":true}
+{"gate":"doc_parity","words":512,"max_abs_diff":0e0,"bit_identical":true}
+{"gate":"query_parity","query":"how does the retrieval pipeline rank candidates","max_abs_diff":0e0,"bit_identical":true}
+{"gate":"query_parity","query":"wikilink graph traversal","max_abs_diff":0e0,"bit_identical":true}
+{"gate":"query_parity","query":"what is reciprocal rank fusion","max_abs_diff":0e0,"bit_identical":true}
+{"gate":"prompt_format_distinct","query_vs_document_diff":9.08577e-2,"formats_differ":true}
+{"probe":"parity","result":"all gates passed","note":"timing lives in time-base / time-actor — one model per process"}

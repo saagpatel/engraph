@@ -1,0 +1,61 @@
+{
+  "schema": "engraph-model-manifest.v1",
+  "claim_boundary": "Declared licenses and upstream URLs are provenance fields, not a legal conclusion. Distribution status remains UNKNOWN.",
+  "models": [
+    {
+      "role": "embedding",
+      "uri": "hf:ggml-org/embeddinggemma-300M-GGUF/embeddinggemma-300M-Q8_0.gguf",
+      "artifact_sha256": "b5ce9d77a3fc4b3b39ccb5643c36777911cc4eb46a66962eadfa3f5f60490d63",
+      "upstream_revision": "0f741b5a6585bd53aeb15cd1372c56f2a0f65e12",
+      "source_receipt_id": "hf-embeddinggemma-300m-q8-20260717",
+      "object_identity": "sha256:b5ce9d77a3fc4b3b39ccb5643c36777911cc4eb46a66962eadfa3f5f60490d63",
+      "acquisition_timestamp": "UNKNOWN",
+      "verified_at": "2026-07-17",
+      "base_model": "google/embeddinggemma-300m",
+      "tokenizer_identity": "GGUF embedded; separate tokenizer artifact digest UNKNOWN",
+      "declared_license": "Gemma Terms of Use",
+      "license_evidence_url": "https://ai.google.dev/gemma/terms",
+      "license_evidence_checked_at": "2026-07-17",
+      "applicable_notice": "Distribution notice and incorporated prohibited-use policy are described in the linked terms; compliance conclusion NOT_ASSERTED",
+      "prohibited_use_policy_url": "https://ai.google.dev/gemma/prohibited_use_policy",
+      "redistribution_status": "UNKNOWN",
+      "license_conclusion": "NOT_ASSERTED"
+    },
+    {
+      "role": "reranking",
+      "uri": "hf:ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF/qwen3-reranker-0.6b-q8_0.gguf",
+      "artifact_sha256": "22c9979ce4fbcdc5acdc310c6641c32797eff1aa980b8f7a2db8a8ea23429a48",
+      "upstream_revision": "a02f48bb4f057028298c21fa033da2b30d7742d5",
+      "source_receipt_id": "hf-qwen3-reranker-06b-q8-20260717",
+      "object_identity": "sha256:22c9979ce4fbcdc5acdc310c6641c32797eff1aa980b8f7a2db8a8ea23429a48",
+      "acquisition_timestamp": "UNKNOWN",
+      "verified_at": "2026-07-17",
+      "base_model": "Qwen/Qwen3-Reranker-0.6B",
+      "tokenizer_identity": "GGUF embedded",
+      "declared_license": "Apache-2.0",
+      "license_evidence_url": "https://huggingface.co/Qwen/Qwen3-Reranker-0.6B",
+      "license_evidence_checked_at": "2026-07-17",
+      "applicable_notice": "Upstream model card declares Apache-2.0; quantizer artifact notice completeness UNKNOWN",
+      "redistribution_status": "UNKNOWN",
+      "license_conclusion": "NOT_ASSERTED"
+    },
+    {
+      "role": "query_expansion",
+      "uri": "hf:Qwen/Qwen3-0.6B-GGUF/Qwen3-0.6B-Q8_0.gguf",
+      "artifact_sha256": "9465e63a22add5354d9bb4b99e90117043c7124007664907259bd16d043bb031",
+      "upstream_revision": "23749fefcc72300e3a2ad315e1317431b06b590a",
+      "source_receipt_id": "hf-qwen3-06b-q8-20260717",
+      "object_identity": "sha256:9465e63a22add5354d9bb4b99e90117043c7124007664907259bd16d043bb031",
+      "acquisition_timestamp": "UNKNOWN",
+      "verified_at": "2026-07-17",
+      "base_model": "Qwen/Qwen3-0.6B",
+      "tokenizer_identity": "GGUF embedded",
+      "declared_license": "Apache-2.0",
+      "license_evidence_url": "https://huggingface.co/Qwen/Qwen3-0.6B/blob/main/LICENSE",
+      "license_evidence_checked_at": "2026-07-17",
+      "applicable_notice": "Upstream LICENSE is Apache-2.0; quantizer artifact notice completeness UNKNOWN",
+      "redistribution_status": "UNKNOWN",
+      "license_conclusion": "NOT_ASSERTED"
+    }
+  ]
+}

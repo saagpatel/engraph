@@ -34,7 +34,10 @@ Plain vector search treats your notes as isolated documents. But knowledge isn't
 
 You have hundreds of markdown notes. You want your AI coding assistant to understand what you've written — not just search keywords, but follow the connections between notes, understand context, and write new notes that fit your vault's structure.
 
-Existing options are either cloud-dependent (Notion AI, Mem), limited to keyword search (Obsidian's built-in), or require you to copy-paste context manually. engraph gives AI agents direct, structured access to your entire vault through a standard protocol.
+engraph is designed for users who prefer local, structured agent access over
+cloud-assisted knowledge services, built-in vault search, or manual context
+transfer. This is product positioning, not a comprehensive competitor survey
+or a claim that every alternative fits one of those categories.
 
 ## How it works
 
@@ -534,17 +537,21 @@ STYLE:
 
 ## How it compares
 
-| | engraph | Basic RAG (vector-only) | Obsidian search |
-|---|---|---|---|
-| Search method | 5-lane RRF (semantic + BM25 + graph + reranker + temporal) | Vector similarity only | Keyword only |
-| Query understanding | LLM orchestrator classifies intent, adapts weights | None | None |
-| Understands note links | Yes (wikilink graph traversal) | No | Limited (backlinks panel) |
-| AI agent access | MCP server (25 tools) + HTTP REST API (26 endpoints) | Custom API needed | No |
-| Write capability | Create/edit/rewrite/delete with smart filing | No | Manual |
-| Vault health | Orphans, broken links, stale notes, tag hygiene | No | Limited |
-| Real-time sync | File watcher, 2s debounce | Manual re-index | N/A |
-| Runs locally | Yes, llama.cpp + Metal GPU | Depends | Yes |
-| Setup | One binary, one command | Framework + code | Built-in |
+This table uses one deliberately defined reference category: vector-only
+“Basic RAG.” It is not a product or market survey, does not cover every
+configuration, and does not establish that engraph is unique.
+
+| | engraph | Basic RAG (vector-only) |
+|---|---|---|
+| Search method | 5-lane RRF (semantic + BM25 + graph + reranker + temporal) | Vector similarity only |
+| Query understanding | LLM orchestrator classifies intent, adapts weights | None |
+| Understands note links | Yes (wikilink graph traversal) | No |
+| AI agent access | MCP server (25 tools) + HTTP REST API (26 endpoints) | Custom API needed |
+| Write capability | Create/edit/rewrite/delete with smart filing | No |
+| Vault health | Orphans, broken links, stale notes, tag hygiene | No |
+| Real-time sync | File watcher, 2s debounce | Manual re-index |
+| Runs locally | Yes, llama.cpp + Metal GPU | Depends |
+| Setup | One binary, one command | Framework + code |
 
 engraph is not a replacement for Obsidian — it's the intelligence layer that sits between your vault and your AI tools.
 

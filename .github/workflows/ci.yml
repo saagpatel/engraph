@@ -23,3 +23,7 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy -- -D warnings
       - run: cargo test --lib
+      - name: Verify research claim durability
+        run: |
+          PYTHONPATH=scripts python3 -m unittest scripts/test_verify_claim_durability.py
+          python3 scripts/verify_claim_durability.py

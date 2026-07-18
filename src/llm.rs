@@ -363,10 +363,10 @@ impl HfModelUri {
         })
     }
 
-    pub fn download_url(&self) -> String {
+    pub fn download_url_at(&self, revision: &str) -> String {
         format!(
-            "https://huggingface.co/{}/resolve/main/{}",
-            self.repo, self.filename
+            "https://huggingface.co/{}/resolve/{}/{}",
+            self.repo, revision, self.filename
         )
     }
 
@@ -377,9 +377,120 @@ impl HfModelUri {
     }
 }
 
-/// Download a file with progress bar and optional SHA256 verification. Retries once on failure.
-pub fn download_model(url: &str, dest: &Path, expected_sha256: Option<&str>) -> Result<()> {
-    fn try_download(url: &str, dest: &Path, expected_sha256: Option<&str>) -> Result<()> {
+#[derive(Debug, Clone, serde::Deserialize)]
+struct ModelManifest {
+    schema: String,
+    claim_boundary: String,
+    models: Vec<ModelManifestEntry>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+struct ModelManifestEntry {
+    role: String,
+    uri: String,
+    artifact_sha256: String,
+    object_identity: String,
+    upstream_revision: String,
+    source_receipt_id: String,
+    base_model: String,
+    tokenizer_identity: String,
+    declared_license: String,
+    license_evidence_url: String,
+    acquisition_timestamp: String,
+    verified_at: String,
+    applicable_notice: String,
+    redistribution_status: String,
+    license_conclusion: String,
+}
+
+const MODEL_MANIFEST_CLAIM_BOUNDARY: &str = "Declared licenses and upstream URLs are provenance fields, not a legal conclusion. Distribution status remains UNKNOWN.";
+
+fn manifested_model_from_json(manifest_json: &str, identity: &str) -> Result<ModelManifestEntry> {
+    let manifest: ModelManifest =
+        serde_json::from_str(manifest_json).context("parsing embedded model manifest")?;
+    if manifest.schema != "engraph-model-manifest.v1" {
+        bail!(
+            "unsupported embedded model manifest schema: {}",
+            manifest.schema
+        );
+    }
+    if manifest.claim_boundary != MODEL_MANIFEST_CLAIM_BOUNDARY {
+        bail!("embedded model manifest claim boundary changed or is missing");
+    }
+    let mut matches = manifest
+        .models
+        .into_iter()
+        .filter(|entry| entry.uri == identity);
+    let entry = matches.next().ok_or_else(|| {
+        anyhow::anyhow!(
+            "model {identity} is not pinned in models/model-manifest-v1.json; \
+                 refusing unverified cache use or download"
+        )
+    })?;
+    if matches.next().is_some() {
+        bail!("model {identity} has duplicate manifest entries");
+    }
+    if entry.artifact_sha256.len() != 64
+        || !entry
+            .artifact_sha256
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
+        bail!("invalid SHA-256 in model manifest for {identity}");
+    }
+    if entry.object_identity != format!("sha256:{}", entry.artifact_sha256) {
+        bail!("model manifest object identity mismatch for {identity}");
+    }
+    if entry.upstream_revision.len() != 40
+        || !entry
+            .upstream_revision
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
+        bail!("model manifest revision must be a 40-character lowercase commit for {identity}");
+    }
+    if !matches!(
+        entry.role.as_str(),
+        "embedding" | "reranking" | "query_expansion" | "tokenizer"
+    ) {
+        bail!("model manifest role is unsupported for {identity}");
+    }
+    if entry.license_conclusion != "NOT_ASSERTED" {
+        bail!("model manifest must not assert a license conclusion for {identity}");
+    }
+    if entry.redistribution_status != "UNKNOWN" {
+        bail!("model manifest redistribution status must remain UNKNOWN for {identity}");
+    }
+    for (field, value) in [
+        ("role", entry.role.as_str()),
+        ("base_model", entry.base_model.as_str()),
+        ("upstream_revision", entry.upstream_revision.as_str()),
+        ("source_receipt_id", entry.source_receipt_id.as_str()),
+        ("tokenizer_identity", entry.tokenizer_identity.as_str()),
+        ("declared_license", entry.declared_license.as_str()),
+        ("license_evidence_url", entry.license_evidence_url.as_str()),
+        (
+            "acquisition_timestamp",
+            entry.acquisition_timestamp.as_str(),
+        ),
+        ("verified_at", entry.verified_at.as_str()),
+        ("applicable_notice", entry.applicable_notice.as_str()),
+    ] {
+        if value.trim().is_empty() {
+            bail!("model manifest {field} is empty for {identity}");
+        }
+    }
+    Ok(entry)
+}
+
+fn manifested_model(uri: &HfModelUri) -> Result<ModelManifestEntry> {
+    let identity = format!("hf:{}/{}", uri.repo, uri.filename);
+    manifested_model_from_json(include_str!("../models/model-manifest-v1.json"), &identity)
+}
+
+/// Download a file with mandatory SHA256 verification. Retries once on failure.
+pub fn download_model(url: &str, dest: &Path, expected_sha256: &str) -> Result<()> {
+    fn try_download(url: &str, dest: &Path, expected_sha256: &str) -> Result<()> {
         tracing::info!("downloading {} -> {}", url, dest.display());
 
         let resp = ureq::get(url)
@@ -404,10 +515,11 @@ pub fn download_model(url: &str, dest: &Path, expected_sha256: Option<&str>) -> 
             dest.file_name().and_then(|n| n.to_str()).unwrap_or("model")
         ));
 
-        // Write to a temp file alongside dest, then rename for crash safety.
-        let tmp_path = dest.with_extension("tmp");
+        // Write to a unique temp file alongside dest. Publish with hard_link so
+        // concurrent acquisition can never replace an existing cache entry.
+        let tmp_path = dest.with_extension(format!("tmp-{}", uuid::Uuid::new_v4()));
         {
-            let mut file = std::fs::File::create(&tmp_path)
+            let mut file = std::fs::File::create_new(&tmp_path)
                 .map_err(|e| anyhow::anyhow!("creating {}: {e}", tmp_path.display()))?;
             let mut reader = resp.into_reader();
             let mut buffer = [0u8; 8192];
@@ -422,21 +534,41 @@ pub fn download_model(url: &str, dest: &Path, expected_sha256: Option<&str>) -> 
         }
         pb.finish_with_message("done");
 
-        // Verify hash if provided.
-        if let Some(expected) = expected_sha256 {
-            let actual = sha256_file(&tmp_path)?;
-            if actual != expected {
-                let _ = std::fs::remove_file(&tmp_path);
-                bail!(
-                    "SHA-256 mismatch for {}: expected {expected}, got {actual}",
-                    dest.display()
-                );
-            }
+        let actual = sha256_file(&tmp_path)?;
+        if actual != expected_sha256 {
+            let _ = std::fs::remove_file(&tmp_path);
+            bail!(
+                "SHA-256 mismatch for {}: expected {expected_sha256}, got {actual}",
+                dest.display()
+            );
         }
 
-        std::fs::rename(&tmp_path, dest).map_err(|e| anyhow::anyhow!("renaming temp file: {e}"))?;
-
-        Ok(())
+        match std::fs::hard_link(&tmp_path, dest) {
+            Ok(()) => {
+                std::fs::remove_file(&tmp_path)?;
+                Ok(())
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                let winner_sha256 = sha256_file(dest)?;
+                let _ = std::fs::remove_file(&tmp_path);
+                if winner_sha256 == expected_sha256 {
+                    Ok(())
+                } else {
+                    bail!(
+                        "concurrent cached model SHA-256 mismatch for {}: expected \
+                         {expected_sha256}, got {winner_sha256}",
+                        dest.display()
+                    )
+                }
+            }
+            Err(error) => {
+                let _ = std::fs::remove_file(&tmp_path);
+                Err(anyhow::anyhow!(
+                    "publishing verified model {}: {error}",
+                    dest.display()
+                ))
+            }
+        }
     }
 
     // Try once, retry on failure.
@@ -444,7 +576,6 @@ pub fn download_model(url: &str, dest: &Path, expected_sha256: Option<&str>) -> 
         Ok(()) => Ok(()),
         Err(first_err) => {
             tracing::warn!("download failed, retrying: {first_err:#}");
-            let _ = std::fs::remove_file(dest);
             try_download(url, dest, expected_sha256)
         }
     }
@@ -465,16 +596,157 @@ fn sha256_file(path: &Path) -> Result<String> {
     Ok(format!("{:x}", hasher.finalize()))
 }
 
-/// Ensure a model is present locally, downloading if not cached.
-pub fn ensure_model(uri: &HfModelUri, models_dir: &Path) -> Result<PathBuf> {
+fn acquisition_receipt_path(model_path: &Path) -> PathBuf {
+    PathBuf::from(format!("{}.provenance.json", model_path.display()))
+}
+
+fn verify_acquisition_receipt(
+    receipt_path: &Path,
+    uri: &HfModelUri,
+    entry: &ModelManifestEntry,
+) -> Result<()> {
+    let value: serde_json::Value = serde_json::from_slice(&std::fs::read(receipt_path)?)
+        .with_context(|| format!("parsing {}", receipt_path.display()))?;
+    let identity = format!("hf:{}/{}", uri.repo, uri.filename);
+    let download_url = uri.download_url_at(&entry.upstream_revision);
+    let acquired_at_is_valid = value
+        .get("acquired_at_unix")
+        .and_then(|v| v.as_u64())
+        .is_some_and(|timestamp| timestamp > 0);
+    if value.get("schema").and_then(|v| v.as_str()) != Some("engraph-model-acquisition.v1")
+        || value.get("uri").and_then(|v| v.as_str()) != Some(identity.as_str())
+        || value.get("download_url").and_then(|v| v.as_str()) != Some(download_url.as_str())
+        || value.get("artifact_sha256").and_then(|v| v.as_str())
+            != Some(entry.artifact_sha256.as_str())
+        || value.get("object_identity").and_then(|v| v.as_str())
+            != Some(entry.object_identity.as_str())
+        || value.get("upstream_revision").and_then(|v| v.as_str())
+            != Some(entry.upstream_revision.as_str())
+        || value.get("base_model").and_then(|v| v.as_str()) != Some(entry.base_model.as_str())
+        || value.get("tokenizer_identity").and_then(|v| v.as_str())
+            != Some(entry.tokenizer_identity.as_str())
+        || value.get("declared_license").and_then(|v| v.as_str())
+            != Some(entry.declared_license.as_str())
+        || value.get("license_evidence_url").and_then(|v| v.as_str())
+            != Some(entry.license_evidence_url.as_str())
+        || value.get("license_conclusion").and_then(|v| v.as_str()) != Some("NOT_ASSERTED")
+        || value.get("redistribution_status").and_then(|v| v.as_str()) != Some("UNKNOWN")
+        || !acquired_at_is_valid
+    {
+        bail!(
+            "model acquisition receipt does not match manifested artifact: {}",
+            receipt_path.display()
+        );
+    }
+    Ok(())
+}
+
+fn write_acquisition_receipt(
+    receipt_path: &Path,
+    uri: &HfModelUri,
+    entry: &ModelManifestEntry,
+) -> Result<()> {
+    let acquired_at_unix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .context("system clock precedes unix epoch")?
+        .as_secs();
+    let value = serde_json::json!({
+        "schema": "engraph-model-acquisition.v1",
+        "uri": format!("hf:{}/{}", uri.repo, uri.filename),
+        "download_url": uri.download_url_at(&entry.upstream_revision),
+        "artifact_sha256": entry.artifact_sha256,
+        "object_identity": entry.object_identity,
+        "upstream_revision": entry.upstream_revision,
+        "base_model": entry.base_model,
+        "tokenizer_identity": entry.tokenizer_identity,
+        "declared_license": entry.declared_license,
+        "license_evidence_url": entry.license_evidence_url,
+        "acquired_at_unix": acquired_at_unix,
+        "license_conclusion": "NOT_ASSERTED",
+        "redistribution_status": "UNKNOWN"
+    });
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    match options.open(receipt_path) {
+        Ok(mut file) => {
+            serde_json::to_writer_pretty(&mut file, &value)?;
+            std::io::Write::write_all(&mut file, b"\n")?;
+            std::io::Write::flush(&mut file)?;
+            file.sync_all()?;
+            Ok(())
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+            verify_acquisition_receipt(receipt_path, uri, entry)
+        }
+        Err(error) => Err(error.into()),
+    }
+}
+
+/// Whether a cache miss may use the network to acquire a manifested model.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModelAcquisitionPolicy {
+    AllowDownload,
+    CacheOnly,
+}
+
+fn verify_cached_model(path: &Path, entry: &ModelManifestEntry) -> Result<()> {
+    let actual = sha256_file(path)?;
+    if actual != entry.artifact_sha256 {
+        bail!(
+            "cached model SHA-256 mismatch for {}: expected {}, got {actual}",
+            path.display(),
+            entry.artifact_sha256
+        );
+    }
+    Ok(())
+}
+
+/// Ensure a model is present locally under an explicit network policy.
+pub fn ensure_model_with_policy(
+    uri: &HfModelUri,
+    models_dir: &Path,
+    policy: ModelAcquisitionPolicy,
+) -> Result<PathBuf> {
+    let entry = manifested_model(uri)?;
+    ensure_model_entry(uri, models_dir, policy, &entry)
+}
+
+fn ensure_model_entry(
+    uri: &HfModelUri,
+    models_dir: &Path,
+    policy: ModelAcquisitionPolicy,
+    entry: &ModelManifestEntry,
+) -> Result<PathBuf> {
     let path = uri.cache_path(models_dir);
-    if !path.exists() {
+    let receipt_path = acquisition_receipt_path(&path);
+    if path.exists() {
+        verify_cached_model(&path, entry)?;
+        if receipt_path.exists() {
+            verify_acquisition_receipt(&receipt_path, uri, entry)?;
+        }
+    } else {
+        if policy == ModelAcquisitionPolicy::CacheOnly {
+            bail!(
+                "manifested model is not cached and cache-only policy forbids download: {}",
+                path.display()
+            );
+        }
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        download_model(&uri.download_url(), &path, None)?;
+        download_model(
+            &uri.download_url_at(&entry.upstream_revision),
+            &path,
+            &entry.artifact_sha256,
+        )?;
+        write_acquisition_receipt(&receipt_path, uri, entry)?;
     }
     Ok(path)
+}
+
+/// Ensure a model is present locally, downloading a manifested revision if needed.
+pub fn ensure_model(uri: &HfModelUri, models_dir: &Path) -> Result<PathBuf> {
+    ensure_model_with_policy(uri, models_dir, ModelAcquisitionPolicy::AllowDownload)
 }
 
 /// Tokenizer that can be backed by either HuggingFace tokenizers crate or shimmytok (GGUF-embedded).
@@ -526,14 +798,10 @@ impl FlexTokenizer {
     }
 }
 
-/// Load tokenizer for a model. Tries external tokenizer.json first, falls back to GGUF-embedded.
+/// Load the tokenizer bound to the manifested model artifact.
 fn load_tokenizer_for_model(uri: &HfModelUri, models_dir: &Path) -> Result<FlexTokenizer> {
-    // 1. Already-cached external tokenizer.json (no network).
-    if let Some(tok) = try_external_tokenizer(uri, models_dir, false) {
-        return Ok(FlexTokenizer::HuggingFace(Box::new(tok)));
-    }
-
-    // 2. Tokenizer embedded in the GGUF we already have (no network).
+    // 1. Tokenizer embedded in the hash-verified GGUF (no network). This is the
+    // only tokenizer identity covered by the default model manifest.
     //    The model file is guaranteed present here: callers run ensure_model()
     //    before loading the tokenizer. Trying the network first meant every
     //    process start paid seconds of doomed HTTP requests (404/401 on all
@@ -549,7 +817,9 @@ fn load_tokenizer_for_model(uri: &HfModelUri, models_dir: &Path) -> Result<FlexT
         return Ok(FlexTokenizer::Gguf(Box::new(tok)));
     }
 
-    // 3. Last resort: download tokenizer.json from candidate repos.
+    // 2. Last resort: use an external tokenizer only through ensure_model(),
+    // which requires its own manifest entry and exact SHA-256. Merely finding a
+    // parsable cached tokenizer is not provenance.
     if let Some(tok) = try_external_tokenizer(uri, models_dir, true) {
         return Ok(FlexTokenizer::HuggingFace(Box::new(tok)));
     }
@@ -604,13 +874,7 @@ fn try_external_tokenizer(
         };
         let tok_path = tok_uri.cache_path(models_dir);
 
-        if tok_path.exists()
-            && let Ok(tok) = tokenizers::Tokenizer::from_file(&tok_path)
-        {
-            return Some(tok);
-        }
-
-        if download
+        if (download || tok_path.exists())
             && let Ok(p) = ensure_model(&tok_uri, models_dir)
             && let Ok(tok) = tokenizers::Tokenizer::from_file(&p)
         {
@@ -1618,8 +1882,8 @@ mod tests {
         assert_eq!(parsed.repo, "ggml-org/embeddinggemma-300M-GGUF");
         assert_eq!(parsed.filename, "embeddinggemma-300M-Q8_0.gguf");
         assert_eq!(
-            parsed.download_url(),
-            "https://huggingface.co/ggml-org/embeddinggemma-300M-GGUF/resolve/main/embeddinggemma-300M-Q8_0.gguf"
+            parsed.download_url_at("0f741b5a6585bd53aeb15cd1372c56f2a0f65e12"),
+            "https://huggingface.co/ggml-org/embeddinggemma-300M-GGUF/resolve/0f741b5a6585bd53aeb15cd1372c56f2a0f65e12/embeddinggemma-300M-Q8_0.gguf"
         );
     }
 
@@ -1649,6 +1913,129 @@ mod tests {
             defaults.embed_uri.contains("embeddinggemma"),
             "default embed model should be embeddinggemma"
         );
+    }
+
+    #[test]
+    fn test_default_models_are_manifested_with_sha256() {
+        let defaults = ModelDefaults::default();
+        for uri_text in [defaults.embed_uri, defaults.rerank_uri, defaults.expand_uri] {
+            let uri = HfModelUri::parse(&uri_text).unwrap();
+            let entry = manifested_model(&uri).unwrap();
+            assert_eq!(entry.artifact_sha256.len(), 64);
+        }
+    }
+
+    #[test]
+    fn test_manifest_rejects_duplicate_identity_and_mutable_revision() {
+        let identity = "hf:example/model/model.gguf";
+        let entry = serde_json::json!({
+            "role": "embedding",
+            "uri": identity,
+            "artifact_sha256": "a".repeat(64),
+            "object_identity": format!("sha256:{}", "a".repeat(64)),
+            "upstream_revision": "b".repeat(40),
+            "source_receipt_id": "example-source",
+            "base_model": "example/base",
+            "tokenizer_identity": "GGUF embedded",
+            "declared_license": "UNKNOWN",
+            "license_evidence_url": "https://example.invalid/license",
+            "acquisition_timestamp": "UNKNOWN",
+            "verified_at": "2026-07-17",
+            "applicable_notice": "UNKNOWN",
+            "redistribution_status": "UNKNOWN",
+            "license_conclusion": "NOT_ASSERTED"
+        });
+        let duplicate = serde_json::json!({
+            "schema": "engraph-model-manifest.v1",
+            "claim_boundary": MODEL_MANIFEST_CLAIM_BOUNDARY,
+            "models": [entry.clone(), entry.clone()]
+        });
+        let error = manifested_model_from_json(&duplicate.to_string(), identity)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("duplicate"));
+
+        let mut mutable = entry;
+        mutable["upstream_revision"] = serde_json::Value::String("main".to_string());
+        let mutable_manifest = serde_json::json!({
+            "schema": "engraph-model-manifest.v1",
+            "claim_boundary": MODEL_MANIFEST_CLAIM_BOUNDARY,
+            "models": [mutable]
+        });
+        let error = manifested_model_from_json(&mutable_manifest.to_string(), identity)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("40-character lowercase commit"));
+    }
+
+    #[test]
+    fn test_unmanifested_model_fails_before_download() {
+        let tmp = tempfile::tempdir().unwrap();
+        let uri = HfModelUri::parse("hf:example/unpinned/model.gguf").unwrap();
+        let error = ensure_model(&uri, tmp.path()).unwrap_err().to_string();
+        assert!(error.contains("not pinned"));
+        assert!(!uri.cache_path(tmp.path()).exists());
+    }
+
+    #[test]
+    fn test_cached_model_hash_mismatch_fails_closed() {
+        let tmp = tempfile::tempdir().unwrap();
+        let defaults = ModelDefaults::default();
+        let uri = HfModelUri::parse(&defaults.embed_uri).unwrap();
+        let path = uri.cache_path(tmp.path());
+        std::fs::write(&path, b"not the manifested model").unwrap();
+        let error = ensure_model(&uri, tmp.path()).unwrap_err().to_string();
+        assert!(error.contains("cached model SHA-256 mismatch"));
+    }
+
+    #[test]
+    fn test_cache_only_policy_fails_before_network_on_cache_miss() {
+        let tmp = tempfile::tempdir().unwrap();
+        let defaults = ModelDefaults::default();
+        let uri = HfModelUri::parse(&defaults.embed_uri).unwrap();
+        let error = ensure_model_with_policy(&uri, tmp.path(), ModelAcquisitionPolicy::CacheOnly)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("cache-only policy forbids download"));
+        assert!(!uri.cache_path(tmp.path()).exists());
+    }
+
+    #[test]
+    fn test_cache_only_policy_accepts_hash_verified_cache_without_network() {
+        let tmp = tempfile::tempdir().unwrap();
+        let defaults = ModelDefaults::default();
+        let uri = HfModelUri::parse(&defaults.embed_uri).unwrap();
+        let mut entry = manifested_model(&uri).unwrap();
+        let path = uri.cache_path(tmp.path());
+        std::fs::write(&path, b"synthetic cached model fixture").unwrap();
+        entry.artifact_sha256 = sha256_file(&path).unwrap();
+        entry.object_identity = format!("sha256:{}", entry.artifact_sha256);
+
+        let result =
+            ensure_model_entry(&uri, tmp.path(), ModelAcquisitionPolicy::CacheOnly, &entry)
+                .unwrap();
+        assert_eq!(result, path);
+        assert!(!acquisition_receipt_path(&path).exists());
+    }
+
+    #[test]
+    fn test_acquisition_receipt_binds_manifested_identity() {
+        let tmp = tempfile::tempdir().unwrap();
+        let defaults = ModelDefaults::default();
+        let uri = HfModelUri::parse(&defaults.embed_uri).unwrap();
+        let entry = manifested_model(&uri).unwrap();
+        let receipt = tmp.path().join("model.provenance.json");
+        write_acquisition_receipt(&receipt, &uri, &entry).unwrap();
+        verify_acquisition_receipt(&receipt, &uri, &entry).unwrap();
+
+        let mut value: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&receipt).unwrap()).unwrap();
+        value["artifact_sha256"] = serde_json::Value::String("0".repeat(64));
+        std::fs::write(&receipt, serde_json::to_vec(&value).unwrap()).unwrap();
+        let error = verify_acquisition_receipt(&receipt, &uri, &entry)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("does not match manifested artifact"));
     }
 
     // ── LlamaEmbed / PromptFormat tests ────────────────────────────────────

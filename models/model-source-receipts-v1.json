@@ -1,0 +1,119 @@
+{
+  "schema": "engraph-model-source-receipts.v1",
+  "captured_at": "2026-07-17",
+  "claim_boundary": "These compact source projections bind observed upstream metadata. They are not archived source pages, acquisition receipts, consent evidence, or legal conclusions.",
+  "canonicalization": "UTF-8 JSON with recursively sorted object keys, compact separators, and no trailing newline",
+  "receipts": [
+    {
+      "receipt_id": "hf-embeddinggemma-300m-q8-20260717",
+      "uri": "hf:ggml-org/embeddinggemma-300M-GGUF/embeddinggemma-300M-Q8_0.gguf",
+      "api_url": "https://huggingface.co/api/models/ggml-org/embeddinggemma-300M-GGUF?blobs=true",
+      "api_projection": {
+        "id": "ggml-org/embeddinggemma-300M-GGUF",
+        "sha": "0f741b5a6585bd53aeb15cd1372c56f2a0f65e12",
+        "license": null,
+        "base_model": [
+          "google/embeddinggemma-300M"
+        ],
+        "artifact": {
+          "rfilename": "embeddinggemma-300M-Q8_0.gguf",
+          "size": 333590944,
+          "lfs": {
+            "pointerSize": 134,
+            "sha256": "b5ce9d77a3fc4b3b39ccb5643c36777911cc4eb46a66962eadfa3f5f60490d63",
+            "size": 333590944
+          },
+          "blobId": "348a491efd217d3af9bbded8890b3dc4f6ba6092"
+        }
+      },
+      "api_projection_sha256": "57b52042efd5a3c8860f5ec4045eb1e6321e181684ede955c0dbfe8c354231b3",
+      "license_evidence": [
+        {
+          "url": "https://ai.google.dev/gemma/terms",
+          "checked_at": "2026-07-17",
+          "observed_version_label": "Last modified: April 1, 2026",
+          "raw_response_sha256": "5bad01543c11e2de0a635a8997187c77884229d9c2c258197ed8739e39dd27c9",
+          "archive_status": "NOT_CAPTURED"
+        },
+        {
+          "url": "https://ai.google.dev/gemma/prohibited_use_policy",
+          "checked_at": "2026-07-17",
+          "observed_version_label": "Last modified: February 21, 2024",
+          "raw_response_sha256": "771a29b43c68d25c53fb665044fd04601a9f05476c3bcc5c39eecc43bc17c88e",
+          "archive_status": "NOT_CAPTURED"
+        }
+      ],
+      "quantizer_notice_completeness": "UNKNOWN",
+      "license_conclusion": "NOT_ASSERTED",
+      "redistribution_status": "UNKNOWN"
+    },
+    {
+      "receipt_id": "hf-qwen3-reranker-06b-q8-20260717",
+      "uri": "hf:ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF/qwen3-reranker-0.6b-q8_0.gguf",
+      "api_url": "https://huggingface.co/api/models/ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF?blobs=true",
+      "api_projection": {
+        "id": "ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF",
+        "sha": "a02f48bb4f057028298c21fa033da2b30d7742d5",
+        "license": "apache-2.0",
+        "base_model": "Qwen/Qwen3-Reranker-0.6B",
+        "artifact": {
+          "rfilename": "qwen3-reranker-0.6b-q8_0.gguf",
+          "size": 639153184,
+          "lfs": {
+            "pointerSize": 134,
+            "sha256": "22c9979ce4fbcdc5acdc310c6641c32797eff1aa980b8f7a2db8a8ea23429a48",
+            "size": 639153184
+          },
+          "blobId": "544b7b7ccf8506f63c4214259c7dfe717465d60a"
+        }
+      },
+      "api_projection_sha256": "b83ab72b3681c9fa83f3e5ddf31357768f06791dd3b92eb25b28e3a7c06f0f58",
+      "license_evidence": [
+        {
+          "url": "https://huggingface.co/Qwen/Qwen3-Reranker-0.6B",
+          "checked_at": "2026-07-17",
+          "observed_version_label": "Mutable model card; versioned content snapshot NOT_CAPTURED",
+          "raw_response_sha256": "UNKNOWN",
+          "archive_status": "NOT_CAPTURED"
+        }
+      ],
+      "quantizer_notice_completeness": "UNKNOWN",
+      "license_conclusion": "NOT_ASSERTED",
+      "redistribution_status": "UNKNOWN"
+    },
+    {
+      "receipt_id": "hf-qwen3-06b-q8-20260717",
+      "uri": "hf:Qwen/Qwen3-0.6B-GGUF/Qwen3-0.6B-Q8_0.gguf",
+      "api_url": "https://huggingface.co/api/models/Qwen/Qwen3-0.6B-GGUF?blobs=true",
+      "api_projection": {
+        "id": "Qwen/Qwen3-0.6B-GGUF",
+        "sha": "23749fefcc72300e3a2ad315e1317431b06b590a",
+        "license": "apache-2.0",
+        "base_model": "Qwen/Qwen3-0.6B",
+        "artifact": {
+          "rfilename": "Qwen3-0.6B-Q8_0.gguf",
+          "size": 639446688,
+          "lfs": {
+            "pointerSize": 134,
+            "sha256": "9465e63a22add5354d9bb4b99e90117043c7124007664907259bd16d043bb031",
+            "size": 639446688
+          },
+          "blobId": "11bf194c8059f3b03e4454376ac67813a1e0eb52"
+        }
+      },
+      "api_projection_sha256": "9e03f271edccc5382b31b4b6635f6343d4c3bf3f4c5145fd927917f0d866d7eb",
+      "license_evidence": [
+        {
+          "url": "https://huggingface.co/Qwen/Qwen3-0.6B/blob/main/LICENSE",
+          "checked_at": "2026-07-17",
+          "observed_version_label": "Mutable main-branch page; versioned content snapshot NOT_CAPTURED",
+          "raw_response_sha256": "UNKNOWN",
+          "archive_status": "NOT_CAPTURED"
+        }
+      ],
+      "quantizer_notice_completeness": "UNKNOWN",
+      "license_conclusion": "NOT_ASSERTED",
+      "redistribution_status": "UNKNOWN"
+    }
+  ]
+}

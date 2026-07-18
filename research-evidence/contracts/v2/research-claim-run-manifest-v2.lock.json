@@ -1,0 +1,15 @@
+{
+  "schema": "research-claim-run-manifest-contract-lock.v1",
+  "contract_id": "https://schemas.local.invalid/research-claim-run-manifest/v2/schema.json",
+  "contract_sha256": "a278934b14bdfcf4bb911680c0f67f58ec9a3a2fb1f62e78d47e70dbcc298d43",
+  "digest_method": "SHA-256 over exact schema file bytes",
+  "package_files": {
+    "README.md": "7d12944839ddb1128a58ca6f1fc214259992942864a49b310432e37460d366ad",
+    "representative-records.json": "98ec5427fd9cf05f677cb180586449a60ec7ff7ff8fffd6d8feb107aa5e96592",
+    "research-claim-run-manifest-v1-to-v2.json": "215924d9e81a1bb1e5d1de050ccf3529482796bf69c596bd1f20cf60908e01ea",
+    "verify_contract.py": "bd12404d958076759ef66d846b2ee6974c8e14f24cf9c8f1d0a8189f49e24081"
+  },
+  "copy_policy": "Engraph and OPERANT copies must be byte-identical and carry this same lock.",
+  "adoption_status": "DUAL_READ_NEW_WRITE_V2_SYNTHETICALLY_VALIDATED",
+  "historical_policy": "PRESERVE_V1_BYTES_NO_IN_PLACE_REWRITE"
+}
