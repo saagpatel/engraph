@@ -117,8 +117,9 @@ class ReceiptTests(unittest.TestCase):
             rr._safe_command_argv(["tool", "--tokenizer", "embedded"]),
             ["tool", "--tokenizer", "embedded"],
         )
+        home_input = Path.home() / "private" / "file"
         self.assertEqual(
-            rr._safe_command_argv(["tool", "--input=/Users/d/private/file"])[1],
+            rr._safe_command_argv(["tool", f"--input={home_input}"])[1],
             "--input=$HOME/private/file",
         )
         with self.assertRaisesRegex(ValueError, "secret-bearing"):
