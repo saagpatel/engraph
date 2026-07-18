@@ -443,6 +443,15 @@ class ReceiptTests(unittest.TestCase):
                 )
                 self.assertEqual(rr.verify_receipt(args.output), [])
 
+    def test_same_manifest_rejects_declared_toolchain_mismatch(self) -> None:
+        runtime = {
+            "rust_toolchain_declared": "rustc 1.0.0 (declared)",
+            "rustc": "rustc 2.0.0 (observed)\nverbose details",
+        }
+        with self.assertRaisesRegex(ValueError, "differs from observed rustc"):
+            rr._require_runtime_declaration("same_manifest_attempt", runtime)
+        rr._require_runtime_declaration("variant_attempt", runtime)
+
     def test_run_records_launch_failure_terminal_result(self) -> None:
         with tempfile.TemporaryDirectory(dir=rr.ROOT) as tmp:
             root = Path(tmp)

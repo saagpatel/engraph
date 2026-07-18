@@ -69,6 +69,10 @@ captured pre/post inputs match within one attempt. It is not a replication
 claim. Post-hoc `create` receipts remain `incomparable` or variant evidence.
 The terminal gate rechecks that the commit and worktree stayed unchanged,
 excluding only the unique plan and raw-output files created by the runner.
+For `same_manifest_attempt`, the declared Rust toolchain must also equal the
+first line of the observed `rustc --version --verbose` capture. A stale
+operator-supplied version is retained as invalid evidence rather than silently
+accepted.
 `audit-plans` scans an evidence directory for planned attempts. It distinguishes
 an absent terminal result (`INCOMPLETE_NO_TERMINAL_RESULT`) from a preserved
 terminal receipt whose required external model, tokenizer, configuration, or
@@ -102,6 +106,13 @@ for this evidence directory.
 The tool does not grant authority to run costly commands. Model downloads,
 expensive benchmarks, and external workloads still require the applicable
 operator approval.
+
+The exact executable for the first v2 P3 correctness burn-in is retained at
+`target/release/examples/p3_actor_parity` as a deliberate tracked exception to
+the normal ignored build tree. This keeps terminal verification from degrading
+to `TERMINAL_RESULT_UNAVAILABLE` after local build cleanup. The executable is
+machine-specific replay material, not a portable or independently reproducible
+build.
 
 ## Citation and novelty durability
 

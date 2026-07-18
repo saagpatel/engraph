@@ -530,6 +530,24 @@ def _runtime_context(rust_toolchain: str) -> dict[str, Any]:
     }
 
 
+def _require_runtime_declaration(
+    comparability_class: str, runtime: dict[str, Any]
+) -> None:
+    if comparability_class != "same_manifest_attempt":
+        return
+    declared = runtime.get("rust_toolchain_declared")
+    observed = runtime.get("rustc")
+    observed_version = (
+        observed.splitlines()[0]
+        if isinstance(observed, str) and observed != "UNKNOWN"
+        else None
+    )
+    if not isinstance(declared, str) or declared != observed_version:
+        raise ValueError(
+            "same-manifest declared Rust toolchain differs from observed rustc"
+        )
+
+
 def _model_acquisition(
     model_path: Path,
     uri: str,
@@ -1393,6 +1411,10 @@ def verify_receipt(path: Path) -> list[str]:
         runtime
     ):
         errors.append("same-manifest receipt has incomplete runtime capture")
+    try:
+        _require_runtime_declaration(data.get("comparability_class"), runtime)
+    except ValueError as exc:
+        errors.append(str(exc))
     if data.get("comparability_class") == "same_manifest_attempt" and _stable_runtime(
         runtime_after
     ) != _stable_runtime(runtime):
@@ -1445,6 +1467,7 @@ def run_measured(args: argparse.Namespace) -> dict[str, Any]:
         raise ValueError("same-manifest attempt requires a clean repository")
     settings = _parse_settings(args.settings_json)
     runtime = _runtime_context(args.rust_toolchain)
+    _require_runtime_declaration(args.comparability, runtime)
     acquisition = _model_acquisition(args.model, args.model_uri, manifest_entry)
     configuration = _configuration(args.config_mode, args.config)
     input_manifest = _optional_repo_artifact(args.input_manifest)
