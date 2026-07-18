@@ -86,6 +86,22 @@ complete fail-closed envelope and globally unique event identity. Use
 `--attempt-id <id>` to evaluate one new attempt without allowing an unrelated
 historical failure to become either its pass or its failure.
 
+Clean clones and CI can validate the committed receipt envelope and repository
+artifacts without claiming custody of unavailable model or tokenizer bytes:
+
+```sh
+python3 scripts/research_receipt.py verify-record \
+  research-evidence/runs/p3-actor-parity-v2-20260717-a2.receipt.json
+python3 scripts/research_receipt.py audit-plans research-evidence/runs \
+  --attempt-id 076b69d2-3a1f-40d6-9555-9c7cc6c69302 \
+  --record-only
+```
+
+Record-only verification filters only explicitly classified unavailable
+external artifacts. Malformed, changed, unsafe, or hash-mismatched evidence
+still fails. The strict `verify` and default `audit-plans` commands remain the
+custody checks and must not be replaced by record-only results.
+
 Receipts contain a canonical self-digest for accidental corruption detection.
 The digest is stored beside editable metadata and is not authentication. They
 are not signed, externally timestamped, or stored on immutable media, so

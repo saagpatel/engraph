@@ -49,10 +49,10 @@ jobs:
       PYTHONDONTWRITEBYTECODE: "1"
       PYTHONPATH: scripts
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.12"
       - name: Verify shared manifest contract
@@ -62,9 +62,9 @@ jobs:
       - name: Verify claim durability
         run: python3 scripts/verify_claim_durability.py
       - name: Verify authentic P3 correctness receipt
-        run: python3 scripts/research_receipt.py verify research-evidence/runs/p3-actor-parity-v2-20260717-a2.receipt.json
+        run: python3 scripts/research_receipt.py verify-record research-evidence/runs/p3-actor-parity-v2-20260717-a2.receipt.json
       - name: Audit the authentic P3 attempt
-        run: python3 scripts/research_receipt.py audit-plans research-evidence/runs --attempt-id 076b69d2-3a1f-40d6-9555-9c7cc6c69302
+        run: python3 scripts/research_receipt.py audit-plans research-evidence/runs --attempt-id 076b69d2-3a1f-40d6-9555-9c7cc6c69302 --record-only
       - name: Run integrity tests
         run: python3 -m unittest discover -s scripts -p "test_*.py" -q
       - name: Run integrity tests without assertions
