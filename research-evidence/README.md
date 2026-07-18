@@ -114,6 +114,12 @@ to `TERMINAL_RESULT_UNAVAILABLE` after local build cleanup. The executable is
 machine-specific replay material, not a portable or independently reproducible
 build.
 
+The append-only `p3-actor-parity-v2-20260717-a1` attempt preserves a successful
+parity execution but is terminally invalid because its declared Rust version
+was stale. The `a2` successor is the first admissible v2 attempt in this burn-in;
+it does not rewrite or supersede the invalid record, and it supports correctness
+only. It supplies no performance evidence.
+
 ## Citation and novelty durability
 
 `citation-ledger-v1.json` is preserved as the historical citation assessment.
