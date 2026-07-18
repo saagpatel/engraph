@@ -71,8 +71,11 @@ The terminal gate rechecks that the commit and worktree stayed unchanged,
 excluding only the unique plan and raw-output files created by the runner.
 `audit-plans` scans an evidence directory for planned attempts. It distinguishes
 an absent terminal result (`INCOMPLETE_NO_TERMINAL_RESULT`) from a preserved
-terminal receipt that no longer verifies against the current checkout
-(`TERMINAL_RESULT_INVALID`). Duplicate plan or terminal IDs are explicit
+terminal receipt whose required external model, tokenizer, configuration, or
+ignored tool binary is absent (`TERMINAL_RESULT_UNAVAILABLE`) and from bound
+evidence that is malformed, changed, or hash-mismatched
+(`TERMINAL_RESULT_INVALID`). Unavailable remains an explicit non-pass, not a
+clean-clone success. Duplicate plan or terminal IDs are explicit
 `AMBIGUOUS_DUPLICATE_*` failures rather than last-path-wins; none of these
 conditions is silently converted to a pass. V2 plans are also checked for a
 complete fail-closed envelope and globally unique event identity. Use

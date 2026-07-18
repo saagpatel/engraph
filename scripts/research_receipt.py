@@ -13,9 +13,9 @@ import hashlib
 import json
 import os
 import platform
-import signal
 import shlex
 import shutil
+import signal
 import subprocess
 import time
 import uuid
@@ -45,6 +45,13 @@ COMPARABILITY_CLASSES = {
     "hardware_variant",
     "runtime_variant",
     "incomparable",
+}
+TERMINAL_UNAVAILABLE_ERRORS = {
+    "tool binary unavailable",
+    "model artifact unavailable",
+    "model acquisition receipt unavailable",
+    "external tokenizer unavailable",
+    "configuration unavailable",
 }
 SECRET_ARGUMENT_NAMES = {
     "api-key",
@@ -968,8 +975,10 @@ def _verify_repo_artifact(
         return [f"{label} path is unsafe"]
     path = ROOT / relative
     errors = []
-    if not path.is_file() or path.is_symlink():
-        errors.append(f"{label} missing or not a regular file")
+    if path.is_symlink() or (path.exists() and not path.is_file()):
+        errors.append(f"{label} is not a regular file")
+    elif not path.is_file():
+        errors.append(f"{label} unavailable")
     else:
         if path.stat().st_size != artifact.get("bytes"):
             errors.append(f"{label} size mismatch")
@@ -985,8 +994,10 @@ def _verify_home_artifact(artifact: dict[str, Any], label: str) -> list[str]:
         return [f"{label} path is unsafe"]
     path = Path.home() / relative
     errors = []
-    if not path.is_file() or path.is_symlink():
-        errors.append(f"{label} missing or not a regular file")
+    if path.is_symlink() or (path.exists() and not path.is_file()):
+        errors.append(f"{label} is not a regular file")
+    elif not path.is_file():
+        errors.append(f"{label} unavailable")
     else:
         if path.stat().st_size != artifact.get("bytes"):
             errors.append(f"{label} size mismatch")
@@ -1233,14 +1244,18 @@ def verify_receipt(path: Path) -> list[str]:
         model_path = None
     else:
         model_path = Path.home() / model_relative
-    if (
-        model_path is None
-        or not model_path.is_file()
-        or model_path.is_symlink()
-        or model_path.stat().st_size != model_info.get("bytes")
-        or sha256(model_path) != model_info.get("sha256")
-    ):
-        errors.append("model missing or hash-mismatched")
+    if model_path is not None:
+        if model_path.is_symlink() or (
+            model_path.exists() and not model_path.is_file()
+        ):
+            errors.append("model artifact is not a regular file")
+        elif not model_path.is_file():
+            errors.append("model artifact unavailable")
+        elif (
+            model_path.stat().st_size != model_info.get("bytes")
+            or sha256(model_path) != model_info.get("sha256")
+        ):
+            errors.append("model artifact hash mismatch")
     try:
         manifest_entry, manifest_sha256 = _model_manifest_entry(
             model_info.get("uri", "")
@@ -1267,13 +1282,17 @@ def verify_receipt(path: Path) -> list[str]:
             errors.append("model acquisition receipt path is unsafe")
         else:
             acquisition_path = Path.home() / acquisition_relative
-            if (
-                not acquisition_path.is_file()
-                or acquisition_path.is_symlink()
-                or acquisition_path.stat().st_size != artifact.get("bytes")
+            if acquisition_path.is_symlink() or (
+                acquisition_path.exists() and not acquisition_path.is_file()
+            ):
+                errors.append("model acquisition receipt is not a regular file")
+            elif not acquisition_path.is_file():
+                errors.append("model acquisition receipt unavailable")
+            elif (
+                acquisition_path.stat().st_size != artifact.get("bytes")
                 or sha256(acquisition_path) != artifact.get("sha256")
             ):
-                errors.append("model acquisition receipt missing or hash-mismatched")
+                errors.append("model acquisition receipt hash mismatch")
     elif acquisition.get("status") != "UNKNOWN_LEGACY_CACHE":
         errors.append("model acquisition status unavailable")
     tokenizer = model_info.get("tokenizer") or {}
@@ -1289,13 +1308,17 @@ def verify_receipt(path: Path) -> list[str]:
             errors.append("external tokenizer path is unsafe")
         else:
             token_path = Path.home() / token_relative
-            if (
-                not token_path.is_file()
-                or token_path.is_symlink()
-                or token_path.stat().st_size != tokenizer.get("bytes")
+            if token_path.is_symlink() or (
+                token_path.exists() and not token_path.is_file()
+            ):
+                errors.append("external tokenizer is not a regular file")
+            elif not token_path.is_file():
+                errors.append("external tokenizer unavailable")
+            elif (
+                token_path.stat().st_size != tokenizer.get("bytes")
                 or sha256(token_path) != tokenizer.get("sha256")
             ):
-                errors.append("external tokenizer missing or hash-mismatched")
+                errors.append("external tokenizer hash mismatch")
     else:
         errors.append("tokenizer identity unavailable")
 
@@ -1529,6 +1552,13 @@ def run_measured(args: argparse.Namespace) -> dict[str, Any]:
     return create_receipt(args)
 
 
+def _terminal_error_status(errors: list[str]) -> str:
+    """Separate absent external replay material from corrupted evidence."""
+    if errors and all(error in TERMINAL_UNAVAILABLE_ERRORS for error in errors):
+        return "TERMINAL_RESULT_UNAVAILABLE"
+    return "TERMINAL_RESULT_INVALID"
+
+
 def incomplete_attempts(
     directory: Path,
     *,
@@ -1647,7 +1677,7 @@ def incomplete_attempts(
                     "attempt_id": attempt_id,
                     "plan": plan_path.relative_to(ROOT).as_posix(),
                     "terminal": terminal_path.relative_to(ROOT).as_posix(),
-                    "status": "TERMINAL_RESULT_INVALID",
+                    "status": _terminal_error_status(errors),
                     "errors": errors,
                 }
             )
@@ -1673,12 +1703,13 @@ def incomplete_attempts(
                     }
                 )
             elif results[0][1]:
+                errors = results[0][1]
                 issues.append(
                     {
                         "attempt_id": attempt_id,
                         "terminal": terminal_paths[0],
-                        "status": "TERMINAL_RESULT_INVALID",
-                        "errors": results[0][1],
+                        "status": _terminal_error_status(errors),
+                        "errors": errors,
                     }
                 )
     return issues

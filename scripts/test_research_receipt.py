@@ -187,7 +187,7 @@ class ReceiptTests(unittest.TestCase):
                 self.assertEqual(rr.verify_receipt(output), [])
                 sidecar.write_text("{}", encoding="utf-8")
                 self.assertIn(
-                    "model acquisition receipt missing or hash-mismatched",
+                    "model acquisition receipt hash mismatch",
                     rr.verify_receipt(output),
                 )
 
@@ -538,6 +538,133 @@ class ReceiptTests(unittest.TestCase):
                 self.assertEqual(receipt["state"], "timeout")
                 self.assertEqual(receipt["exit_code"], 124)
                 self.assertEqual(rr.verify_receipt(args.output), [])
+
+    def test_audit_separates_unavailable_external_bytes_from_invalid_evidence(
+        self,
+    ) -> None:
+        for missing_kind in ("tool", "model"):
+            with self.subTest(missing_kind=missing_kind):
+                with tempfile.TemporaryDirectory(dir=rr.ROOT) as tmp:
+                    root = Path(tmp)
+                    model = root / "model.gguf"
+                    model.write_bytes(b"synthetic model fixture")
+                    args = self._args(
+                        raw=root / "raw.txt",
+                        model=model,
+                        output=root / "receipt.json",
+                        state="completed",
+                        exit_code=0,
+                    )
+                    args.plan = root / "planned.json"
+                    args.timeout_seconds = 5
+                    tool = root / "synthetic-tool"
+                    tool.write_text(
+                        f"#!{sys.executable}\nprint('synthetic correctness path')\n",
+                        encoding="utf-8",
+                    )
+                    tool.chmod(0o700)
+                    args.tool_binary = tool
+                    args.measured_command = ["--", str(tool)]
+                    manifest_entry = self._manifest_entry(model)
+                    with mock.patch.object(
+                        rr, "_model_manifest_entry", return_value=manifest_entry
+                    ):
+                        rr.run_measured(args)
+                        self.assertEqual(rr.incomplete_attempts(root), [])
+                        (tool if missing_kind == "tool" else model).unlink()
+                        issues = rr.incomplete_attempts(root)
+                    self.assertEqual(len(issues), 1)
+                    self.assertEqual(
+                        issues[0]["status"], "TERMINAL_RESULT_UNAVAILABLE"
+                    )
+                    self.assertTrue(issues[0]["errors"])
+                    replacement = root / f"{missing_kind}-replacement"
+                    if missing_kind == "tool":
+                        replacement.write_text(
+                            (
+                                f"#!{sys.executable}\n"
+                                "print('synthetic correctness path')\n"
+                            ),
+                            encoding="utf-8",
+                        )
+                        replacement.chmod(0o700)
+                        tool.symlink_to(replacement)
+                    else:
+                        replacement.write_bytes(b"synthetic model fixture")
+                        model.symlink_to(replacement)
+                    with mock.patch.object(
+                        rr, "_model_manifest_entry", return_value=manifest_entry
+                    ):
+                        issues = rr.incomplete_attempts(root)
+                    self.assertEqual(len(issues), 1)
+                    self.assertEqual(
+                        issues[0]["status"], "TERMINAL_RESULT_INVALID"
+                    )
+                    self.assertTrue(
+                        any(
+                            "not a regular file" in error
+                            for error in issues[0]["errors"]
+                        )
+                    )
+
+    def test_audit_keeps_tampered_bound_bytes_invalid(self) -> None:
+        with tempfile.TemporaryDirectory(dir=rr.ROOT) as tmp:
+            root = Path(tmp)
+            model = root / "model.gguf"
+            model.write_bytes(b"synthetic model fixture")
+            args = self._args(
+                raw=root / "raw.txt",
+                model=model,
+                output=root / "receipt.json",
+                state="completed",
+                exit_code=0,
+            )
+            args.plan = root / "planned.json"
+            args.timeout_seconds = 5
+            tool = root / "synthetic-tool"
+            tool.write_text(
+                f"#!{sys.executable}\nprint('synthetic correctness path')\n",
+                encoding="utf-8",
+            )
+            tool.chmod(0o700)
+            args.tool_binary = tool
+            args.measured_command = ["--", str(tool)]
+            manifest_entry = self._manifest_entry(model)
+            with mock.patch.object(
+                rr, "_model_manifest_entry", return_value=manifest_entry
+            ):
+                rr.run_measured(args)
+                args.raw.write_text("tampered evidence", encoding="utf-8")
+                issues = rr.incomplete_attempts(root)
+            self.assertEqual(len(issues), 1)
+            self.assertEqual(issues[0]["status"], "TERMINAL_RESULT_INVALID")
+            self.assertTrue(
+                any("raw output" in error for error in issues[0]["errors"])
+            )
+
+    def test_terminal_classification_requires_only_known_availability_errors(
+        self,
+    ) -> None:
+        for error in sorted(rr.TERMINAL_UNAVAILABLE_ERRORS):
+            with self.subTest(error=error):
+                self.assertEqual(
+                    rr._terminal_error_status([error]),
+                    "TERMINAL_RESULT_UNAVAILABLE",
+                )
+        self.assertEqual(
+            rr._terminal_error_status([]),
+            "TERMINAL_RESULT_INVALID",
+        )
+        self.assertEqual(
+            rr._terminal_error_status(
+                ["tool binary unavailable", "raw output hash mismatch"]
+            ),
+            "TERMINAL_RESULT_INVALID",
+        )
+        self.assertEqual(
+            rr._terminal_error_status(["external tokenizer hash mismatch"]),
+            "TERMINAL_RESULT_INVALID",
+        )
 
     def test_incomplete_attempt_inventory_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory(dir=rr.ROOT) as tmp:
