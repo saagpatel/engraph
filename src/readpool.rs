@@ -98,6 +98,18 @@ impl ReadPool {
         self.size
     }
 
+    /// Lock the free list, recovering from poisoning.
+    ///
+    /// The free list is a plain `Vec<Store>` guarding no invariant that a
+    /// panic could leave half-applied, so poison carries no information worth
+    /// propagating. Recovering matters because the two access paths must agree:
+    /// an `expect()` here with a poison-tolerant `Drop` would mean one rare
+    /// panic while returning a connection permanently bricks every later
+    /// checkout, since poison is never cleared.
+    fn lock_free_list(free: &StdMutex<Vec<Store>>) -> std::sync::MutexGuard<'_, Vec<Store>> {
+        free.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
     /// Check out a connection, waiting if all of them are busy.
     pub async fn get(&self) -> PooledStore<'_> {
         let permit = self
@@ -105,10 +117,7 @@ impl ReadPool {
             .acquire()
             .await
             .expect("read pool semaphore is never closed");
-        let store = self
-            .free
-            .lock()
-            .expect("read pool free list poisoned")
+        let store = Self::lock_free_list(&self.free)
             .pop()
             .expect("a permit guarantees an available connection");
         PooledStore {
@@ -139,12 +148,12 @@ impl Deref for PooledStore<'_> {
 impl Drop for PooledStore<'_> {
     fn drop(&mut self) {
         if let Some(store) = self.store.take() {
-            // A poisoned free list means another thread panicked mid-checkout.
-            // Dropping the connection is preferable to propagating a panic out
-            // of Drop, so the pool shrinks rather than taking the server down.
-            if let Ok(mut free) = self.pool.free.lock() {
-                free.push(store);
-            }
+            // Recovers from poisoning rather than dropping the connection: the
+            // permit is released regardless when `_permit` drops, so failing to
+            // return the store here would leave the semaphore handing out
+            // permits for connections that no longer exist, and the `pop()` in
+            // `get()` would then be the thing that panics.
+            ReadPool::lock_free_list(&self.pool.free).push(store);
         }
     }
 }
@@ -295,6 +304,33 @@ mod tests {
             reader.get_meta("probe_key").unwrap().as_deref(),
             Some("probe_value")
         );
+    }
+
+    /// A poisoned free list must not brick the pool. Poison is never cleared,
+    /// so an `expect()` on this lock would mean one panic anywhere near the
+    /// free list permanently fails every later checkout.
+    #[tokio::test]
+    async fn survives_a_poisoned_free_list() {
+        let (_dir, path) = seeded_db();
+        let pool = Arc::new(ReadPool::open(&path, 2, None).unwrap());
+
+        // Poison the free-list mutex by panicking while holding it.
+        let poisoner = Arc::clone(&pool);
+        let _ = std::thread::spawn(move || {
+            let _guard = poisoner.free.lock().unwrap();
+            panic!("poisoning the free list on purpose");
+        })
+        .join();
+        assert!(
+            pool.free.is_poisoned(),
+            "test did not actually poison the lock"
+        );
+
+        // Checkout, use, and return must all still work.
+        let reader = pool.get().await;
+        assert!(reader.get_meta("missing_key").is_ok());
+        drop(reader);
+        let _again = pool.get().await;
     }
 
     /// Regression guard for a shipped bug: routing orchestration through a
