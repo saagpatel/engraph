@@ -25,7 +25,39 @@ pub struct FusedResult {
     pub snippet: String,
     pub docid: Option<String>,
     pub lane_contributions: Vec<LaneContribution>,
-    pub confidence: f64, // 0-100% normalized score
+    /// This result's RRF score as a percentage of the top result's.
+    ///
+    /// The top hit is **always 100 by construction**, however bad it is. This
+    /// ranks; it does not measure. It was previously called `confidence`, which
+    /// read as a quality judgement to every caller deciding whether to trust a
+    /// result. Renamed rather than redefined: reusing the old name with new
+    /// semantics would have broken consumers silently.
+    pub relative_score: f64,
+    /// Distinct lanes that ranked this result (not the length of
+    /// `lane_contributions`, which can hold several entries from one lane when
+    /// that lane returns multiple chunks of the same file).
+    pub lanes_hit: usize,
+    /// Lanes that returned at least one result for this query, i.e. the lanes
+    /// that had an opinion to offer. Carried so the agreement ratio is
+    /// checkable instead of asserted.
+    pub lanes_ran: usize,
+}
+
+impl FusedResult {
+    /// Corroboration: the fraction of participating lanes that found this
+    /// result. A hit surfaced by semantic, FTS and graph is better evidenced
+    /// than one only the graph straggler produced.
+    ///
+    /// The denominator is lanes that *returned something*, not the number of
+    /// lanes configured. A lane that ran and matched nothing offered no
+    /// evidence either way, and counting it would systematically depress every
+    /// score whenever intelligence is off and the reranker lane is absent.
+    pub fn lane_agreement(&self) -> f64 {
+        if self.lanes_ran == 0 {
+            return 0.0;
+        }
+        self.lanes_hit as f64 / self.lanes_ran as f64
+    }
 }
 
 /// Per-lane contribution details for --explain output.
@@ -101,6 +133,11 @@ pub fn rrf_fuse(lanes: &[(&str, &[RankedResult], f64)], k: usize) -> Vec<FusedRe
         }
     }
 
+    // Lanes that had an opinion to offer. A configured lane that matched
+    // nothing is not evidence against a result, so it stays out of the
+    // agreement denominator.
+    let lanes_ran = lanes.iter().filter(|(_, r, _)| !r.is_empty()).count();
+
     let mut results: Vec<FusedResult> = acc_map
         .into_values()
         .map(|a| FusedResult {
@@ -110,8 +147,15 @@ pub fn rrf_fuse(lanes: &[(&str, &[RankedResult], f64)], k: usize) -> Vec<FusedRe
             heading: a.heading,
             snippet: a.snippet,
             docid: a.docid,
+            lanes_hit: a
+                .lane_contributions
+                .iter()
+                .map(|lc| lc.lane_name.as_str())
+                .collect::<std::collections::BTreeSet<_>>()
+                .len(),
             lane_contributions: a.lane_contributions,
-            confidence: 0.0,
+            relative_score: 0.0,
+            lanes_ran,
         })
         .collect();
 
@@ -124,10 +168,12 @@ pub fn rrf_fuse(lanes: &[(&str, &[RankedResult], f64)], k: usize) -> Vec<FusedRe
             .then_with(|| a.file_path.cmp(&b.file_path))
     });
 
-    // Normalize confidence as percentage of max score
+    // Express each score relative to the top one. Note what this is and is
+    // not: the leader is 100 by definition, so this orders results and says
+    // nothing about whether any of them are any good.
     let max_score = results.first().map(|r| r.rrf_score).unwrap_or(1.0);
     for r in &mut results {
-        r.confidence = if max_score > 0.0 {
+        r.relative_score = if max_score > 0.0 {
             (r.rrf_score / max_score) * 100.0
         } else {
             0.0
@@ -200,6 +246,103 @@ mod tests {
     }
 
     #[test]
+    fn test_lane_agreement_counts_distinct_lanes_not_contributions() {
+        // A lane returning two chunks of the SAME file pushes two
+        // contributions. That is one lane agreeing with itself, not two lanes
+        // corroborating each other, and conflating them would let a single
+        // lane manufacture full agreement on its own.
+        let semantic = vec![make_result("dup.md", 0.9), make_result("dup.md", 0.8)];
+        let fts = vec![make_result("dup.md", 5.0)];
+
+        let fused = rrf_fuse(&[("semantic", &semantic, 1.0), ("fts", &fts, 1.0)], 60);
+
+        assert_eq!(fused[0].file_path, "dup.md");
+        assert_eq!(
+            fused[0].lane_contributions.len(),
+            3,
+            "three raw contributions"
+        );
+        assert_eq!(fused[0].lanes_hit, 2, "but only two DISTINCT lanes");
+        assert_eq!(fused[0].lanes_ran, 2);
+        assert!((fused[0].lane_agreement() - 1.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_lane_agreement_denominator_excludes_silent_lanes() {
+        // A lane that ran and matched nothing is not evidence against a
+        // result. Counting it would depress every score whenever a lane is
+        // absent -- e.g. the reranker with intelligence off, which is the
+        // normal configuration on this machine.
+        let semantic = vec![make_result("a.md", 0.9)];
+        let empty: Vec<RankedResult> = vec![];
+
+        let fused = rrf_fuse(
+            &[
+                ("semantic", &semantic, 1.0),
+                ("fts", &empty, 1.0),
+                ("graph", &empty, 1.0),
+            ],
+            60,
+        );
+
+        assert_eq!(fused[0].lanes_ran, 1, "only one lane had an opinion");
+        assert_eq!(fused[0].lanes_hit, 1);
+        assert!((fused[0].lane_agreement() - 1.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_relative_score_ranks_but_agreement_discriminates() {
+        // The point of the whole change. The top hit's relative_score is 100
+        // by construction whether it is corroborated or not, so agreement is
+        // the field that carries information about trustworthiness.
+        let semantic = vec![make_result("lonely.md", 0.9)];
+        let fts = vec![make_result("corroborated.md", 9.9)];
+        let graph = vec![make_result("corroborated.md", 9.9)];
+
+        let fused = rrf_fuse(
+            &[
+                ("semantic", &semantic, 1.0),
+                ("fts", &fts, 1.0),
+                ("graph", &graph, 1.0),
+            ],
+            60,
+        );
+
+        let top = &fused[0];
+        let other = &fused[1];
+        assert_eq!(top.file_path, "corroborated.md");
+        assert!(
+            (top.relative_score - 100.0).abs() < 1e-10,
+            "leader is always 100"
+        );
+
+        // Agreement separates them where relative_score cannot.
+        assert_eq!(top.lanes_hit, 2);
+        assert_eq!(other.lanes_hit, 1);
+        assert!(top.lane_agreement() > other.lane_agreement());
+    }
+
+    #[test]
+    fn test_lane_agreement_is_zero_when_nothing_ran() {
+        let fused = rrf_fuse(&[], 60);
+        assert!(fused.is_empty());
+        // And the guard holds for a hand-built result with no lanes.
+        let r = FusedResult {
+            file_path: "x.md".into(),
+            file_id: 1,
+            rrf_score: 0.0,
+            heading: None,
+            snippet: String::new(),
+            docid: None,
+            lane_contributions: Vec::new(),
+            relative_score: 0.0,
+            lanes_hit: 0,
+            lanes_ran: 0,
+        };
+        assert_eq!(r.lane_agreement(), 0.0, "no divide-by-zero");
+    }
+
+    #[test]
     fn test_rrf_weighted() {
         // FTS weighted 3x should make FTS-only item win over semantic-only item
         let semantic = vec![make_result("sem.md", 0.95)];
@@ -250,7 +393,9 @@ mod tests {
             heading: None,
             snippet: "test".to_string(),
             docid: None,
-            confidence: 100.0,
+            relative_score: 100.0,
+            lanes_hit: 1,
+            lanes_ran: 1,
             lane_contributions: vec![
                 LaneContribution {
                     lane_name: "semantic".to_string(),

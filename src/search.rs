@@ -19,11 +19,29 @@ fn orchestration_cache_key(query: &str) -> String {
 /// A single search result with metadata.
 pub struct SearchResult {
     pub score: f32,
-    pub confidence: f64,
+    /// Rank-relative, not a quality judgement: the top hit is always 100.
+    /// See `fusion::FusedResult::relative_score`.
+    pub relative_score: f64,
+    /// Distinct lanes that found this result, over lanes that returned
+    /// anything. Both counts travel with it so the ratio stays checkable.
+    pub lanes_hit: usize,
+    pub lanes_ran: usize,
     pub file_path: String,
     pub heading: Option<String>,
     pub snippet: String,
     pub docid: Option<String>,
+}
+
+impl SearchResult {
+    /// Fraction of participating lanes that found this result. See
+    /// `fusion::FusedResult::lane_agreement` for why the denominator is lanes
+    /// that returned something rather than lanes configured.
+    pub fn lane_agreement(&self) -> f64 {
+        if self.lanes_ran == 0 {
+            return 0.0;
+        }
+        self.lanes_hit as f64 / self.lanes_ran as f64
+    }
 }
 
 /// Structured search result for internal use (no I/O).
@@ -32,7 +50,9 @@ pub struct InternalSearchResult {
     pub file_path: String,
     pub file_id: i64,
     pub score: f64,
-    pub confidence: f64,
+    pub relative_score: f64,
+    pub lanes_hit: usize,
+    pub lanes_ran: usize,
     pub heading: Option<String>,
     pub snippet: String,
     pub docid: Option<String>,
@@ -350,7 +370,9 @@ pub fn search_with_intelligence(
             file_path: f.file_path.clone(),
             file_id: f.file_id,
             score: f.rrf_score,
-            confidence: f.confidence,
+            relative_score: f.relative_score,
+            lanes_hit: f.lanes_hit,
+            lanes_ran: f.lanes_ran,
             heading: f.heading.clone(),
             snippet: f.snippet.clone(),
             docid: f.docid.clone(),
@@ -474,7 +496,9 @@ pub fn run_search(
         .iter()
         .map(|r| SearchResult {
             score: r.score as f32,
-            confidence: r.confidence,
+            relative_score: r.relative_score,
+            lanes_hit: r.lanes_hit,
+            lanes_ran: r.lanes_ran,
             file_path: r.file_path.clone(),
             heading: r.heading.clone(),
             snippet: r.snippet.clone(),
@@ -558,7 +582,13 @@ pub fn format_results(results: &[SearchResult], json: bool) -> String {
                 json!({
                     "rank": i + 1,
                     "score": score_rounded,
-                    "confidence": r.confidence,
+                    // Was "confidence". Renamed, not redefined: a caller that
+                    // reads the old key now gets nothing instead of silently
+                    // reading a rank as a quality score.
+                    "relative_score": r.relative_score,
+                    "lane_agreement": (r.lane_agreement() * 100.0).round() / 100.0,
+                    "lanes_hit": r.lanes_hit,
+                    "lanes_ran": r.lanes_ran,
                     "file": r.file_path,
                     "heading": r.heading,
                     "snippet": r.snippet,
@@ -579,10 +609,15 @@ pub fn format_results(results: &[SearchResult], json: bool) -> String {
                 None => String::new(),
             };
             let snippet = truncate_snippet(&r.snippet, 200);
+            // Show the corroboration beside the rank-relative number, so the
+            // leading 100% cannot be read as "this is a good result" on its
+            // own. "3/4" says three of the four lanes that spoke found this.
             out.push_str(&format!(
-                "{:>2}. [{:>3.0}%] {}{}{}\n    {}\n",
+                "{:>2}. [{:>3.0}% · {}/{} lanes] {}{}{}\n    {}\n",
                 i + 1,
-                r.confidence,
+                r.relative_score,
+                r.lanes_hit,
+                r.lanes_ran,
                 r.file_path,
                 heading_part,
                 docid_part,
@@ -698,7 +733,9 @@ mod tests {
     fn test_format_human_result() {
         let results = vec![SearchResult {
             score: 0.87,
-            confidence: 100.0,
+            relative_score: 100.0,
+            lanes_hit: 1,
+            lanes_ran: 1,
             file_path: "foo.md".to_string(),
             heading: Some("## Bar".to_string()),
             snippet: "Some text...".to_string(),
@@ -707,7 +744,7 @@ mod tests {
         let output = format_results(&results, false);
         assert_eq!(
             output,
-            " 1. [100%] foo.md > ## Bar #ab12cd\n    Some text...\n"
+            " 1. [100% · 1/1 lanes] foo.md > ## Bar #ab12cd\n    Some text...\n"
         );
     }
 
@@ -715,21 +752,28 @@ mod tests {
     fn test_format_human_result_no_docid() {
         let results = vec![SearchResult {
             score: 0.87,
-            confidence: 100.0,
+            relative_score: 100.0,
+            lanes_hit: 1,
+            lanes_ran: 1,
             file_path: "foo.md".to_string(),
             heading: Some("## Bar".to_string()),
             snippet: "Some text...".to_string(),
             docid: None,
         }];
         let output = format_results(&results, false);
-        assert_eq!(output, " 1. [100%] foo.md > ## Bar\n    Some text...\n");
+        assert_eq!(
+            output,
+            " 1. [100% · 1/1 lanes] foo.md > ## Bar\n    Some text...\n"
+        );
     }
 
     #[test]
     fn test_format_json_result() {
         let results = vec![SearchResult {
             score: 0.87,
-            confidence: 100.0,
+            relative_score: 100.0,
+            lanes_hit: 1,
+            lanes_ran: 1,
             file_path: "foo.md".to_string(),
             heading: Some("## Bar".to_string()),
             snippet: "Some text...".to_string(),
@@ -740,7 +784,14 @@ mod tests {
         assert_eq!(parsed.len(), 1);
         assert_eq!(parsed[0]["rank"], 1);
         assert_eq!(parsed[0]["score"], 0.87);
-        assert_eq!(parsed[0]["confidence"], 100.0);
+        assert_eq!(parsed[0]["relative_score"], 100.0);
+        assert_eq!(parsed[0]["lane_agreement"], 1.0);
+        assert_eq!(parsed[0]["lanes_hit"], 1);
+        assert_eq!(parsed[0]["lanes_ran"], 1);
+        // The old key is GONE, not repurposed. A consumer still reading
+        // "confidence" now gets null and fails loudly, rather than silently
+        // continuing to read a rank as if it were a quality score.
+        assert!(parsed[0].get("confidence").is_none());
         assert_eq!(parsed[0]["file"], "foo.md");
         assert_eq!(parsed[0]["heading"], "## Bar");
         assert_eq!(parsed[0]["snippet"], "Some text...");
