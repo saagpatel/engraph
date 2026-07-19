@@ -671,6 +671,8 @@ impl EngraphServer {
         let config = crate::health::HealthConfig {
             daily_folder: profile_ref.and_then(|p| p.structure.folders.daily.clone()),
             inbox_folder: profile_ref.and_then(|p| p.structure.folders.inbox.clone()),
+            // Lets health tell "target is missing" from "target is excluded".
+            vault_path: Some((*self.vault_path).clone()),
         };
         let report =
             crate::health::generate_health_report(&store, &config).map_err(|e| mcp_err(&e))?;

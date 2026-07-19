@@ -1,3 +1,6 @@
+use std::collections::HashSet;
+use std::path::Path;
+
 use anyhow::Result;
 
 use crate::store::Store;
@@ -6,7 +9,21 @@ use crate::store::Store;
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct HealthReport {
     pub orphans: Vec<String>,
+    /// Wikilinks whose target exists nowhere on disk. These are the actionable
+    /// ones: something is genuinely missing or misspelled.
     pub broken_links: Vec<BrokenLink>,
+    /// Wikilinks whose target EXISTS on disk but is not in the index, because
+    /// it sits under a configured `exclude` pattern or a vault `.ignore`.
+    ///
+    /// Nothing is wrong with these links, and no amount of reindexing will
+    /// clear them, so reporting them as broken made the whole check cry wolf.
+    /// Measured on the live vault before this split: 252 of 260 unresolved
+    /// links pointed at files that were present the whole time.
+    pub excluded_links: Vec<BrokenLink>,
+    /// Whether the split above actually ran. False means no vault path was
+    /// available, `excluded_links` is empty for that reason rather than
+    /// because there were none, and `broken_links` is unpartitioned.
+    pub disk_reconciled: bool,
     pub stale_notes: Vec<String>,
     pub inbox_pending: Vec<String>,
     pub tag_issues: Vec<TagIssue>,
@@ -32,6 +49,13 @@ pub struct TagIssue {
 pub struct HealthConfig {
     pub daily_folder: Option<String>,
     pub inbox_folder: Option<String>,
+    /// Vault root, used to tell "this target does not exist" apart from "this
+    /// target exists but is not in the index".
+    ///
+    /// When `None` the two cannot be separated, every unresolved link stays in
+    /// `broken_links`, and the report sets `disk_reconciled: false` so the
+    /// number is never read as more certain than it is.
+    pub vault_path: Option<std::path::PathBuf>,
 }
 
 /// Find files with no edges (neither incoming nor outgoing).
@@ -61,6 +85,56 @@ pub fn find_broken_links(store: &Store) -> Result<Vec<BrokenLink>> {
         .collect())
 }
 
+/// Split unresolved links into genuinely-missing and merely-not-indexed.
+///
+/// The index only knows what it was allowed to index. A wikilink pointing into
+/// an excluded layer can never resolve, so it was recorded as broken and stayed
+/// broken through every reindex — the "163 broken links unchanged after 50+
+/// reindexes" report. Reindexing was never going to help: the target was
+/// excluded by configuration, not absent.
+///
+/// So the question "is this link broken?" is a question about the DISK, and it
+/// gets asked here rather than against index membership.
+///
+/// Matching deliberately mirrors `indexer::resolve_link_target`: exact relative
+/// path with or without the `.md` extension, else case-insensitive basename. If
+/// the two ever disagree, a link would be called broken while the indexer would
+/// happily resolve it.
+pub fn reconcile_links_with_disk(
+    links: Vec<BrokenLink>,
+    vault_path: &Path,
+) -> Result<(Vec<BrokenLink>, Vec<BrokenLink>)> {
+    // Walk with NO exclusions and no gitignore filtering: the whole point is to
+    // see files the indexer was told to skip.
+    let files = crate::indexer::walk_vault(vault_path, &[], false)?;
+
+    let mut rel_paths: HashSet<String> = HashSet::new();
+    let mut by_stem: HashSet<String> = HashSet::new();
+    for p in &files {
+        if let Ok(r) = p.strip_prefix(vault_path) {
+            let r = r.to_string_lossy().to_string();
+            rel_paths.insert(r.trim_end_matches(".md").to_string());
+            rel_paths.insert(r);
+        }
+        if let Some(stem) = p.file_stem() {
+            by_stem.insert(stem.to_string_lossy().to_lowercase());
+        }
+    }
+
+    let exists_on_disk = |target: &str| -> bool {
+        let bare = target.trim_end_matches(".md");
+        if rel_paths.contains(bare) || rel_paths.contains(target) {
+            return true;
+        }
+        let basename = bare.rsplit('/').next().unwrap_or(bare);
+        by_stem.contains(&basename.to_lowercase())
+    };
+
+    let (excluded, broken): (Vec<_>, Vec<_>) =
+        links.into_iter().partition(|l| exists_on_disk(&l.target));
+    Ok((broken, excluded))
+}
+
 /// Find notes that haven't been updated in the given number of days.
 ///
 /// Stub — returns an empty vec for now. A full implementation would check
@@ -72,7 +146,26 @@ pub fn find_stale_notes(_store: &Store, _days: u32) -> Result<Vec<String>> {
 /// Generate a combined health report for the vault.
 pub fn generate_health_report(store: &Store, config: &HealthConfig) -> Result<HealthReport> {
     let orphans = find_orphans(store, config)?;
-    let broken_links = find_broken_links(store)?;
+    let unresolved = find_broken_links(store)?;
+
+    // Ask the disk, not the index. Without a vault path we cannot ask, so we
+    // keep every link in `broken_links` and flag that the split did not run
+    // rather than emitting a confidently wrong empty `excluded_links`.
+    // A failed walk must not take the whole report down: an unreadable vault
+    // makes the link split unavailable, not the orphan counts or tag issues.
+    // It degrades to the unreconciled view and says so, rather than 500ing or
+    // silently claiming zero excluded links.
+    let (broken_links, excluded_links, disk_reconciled) = match config.vault_path.as_deref() {
+        Some(vault) => match reconcile_links_with_disk(unresolved.clone(), vault) {
+            Ok((broken, excluded)) => (broken, excluded, true),
+            Err(e) => {
+                tracing::warn!("link disk-reconciliation failed (non-fatal): {e:#}");
+                (unresolved, Vec::new(), false)
+            }
+        },
+        None => (unresolved, Vec::new(), false),
+    };
+
     let stale_notes = find_stale_notes(store, 90)?;
 
     // Inbox pending: files in the inbox folder.
@@ -122,6 +215,8 @@ pub fn generate_health_report(store: &Store, config: &HealthConfig) -> Result<He
     Ok(HealthReport {
         orphans,
         broken_links,
+        excluded_links,
+        disk_reconciled,
         stale_notes,
         inbox_pending,
         tag_issues,
@@ -134,6 +229,114 @@ pub fn generate_health_report(store: &Store, config: &HealthConfig) -> Result<He
 mod tests {
     use super::*;
     use crate::store::Store;
+
+    /// Build a throwaway vault on disk. `files` are paths relative to the root.
+    fn vault_with(files: &[&str]) -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        for f in files {
+            let p = dir.path().join(f);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(&p, "# note\n").unwrap();
+        }
+        dir
+    }
+
+    fn link(target: &str) -> BrokenLink {
+        BrokenLink {
+            source: "src.md".to_string(),
+            target: target.to_string(),
+        }
+    }
+
+    #[test]
+    fn excluded_target_on_disk_is_not_broken() {
+        // The whole defect in one test. `raw/` is excluded from indexing, so
+        // this link can never resolve and stayed "broken" through 50+
+        // reindexes. The file was there the entire time.
+        let vault = vault_with(&["raw/paper.md", "notes/real.md"]);
+        let (broken, excluded) =
+            reconcile_links_with_disk(vec![link("raw/paper")], vault.path()).unwrap();
+
+        assert!(broken.is_empty(), "target exists; nothing is broken");
+        assert_eq!(excluded.len(), 1);
+        assert_eq!(excluded[0].target, "raw/paper");
+    }
+
+    #[test]
+    fn absent_target_is_genuinely_broken() {
+        let vault = vault_with(&["notes/real.md"]);
+        let (broken, excluded) =
+            reconcile_links_with_disk(vec![link("notes/ghost")], vault.path()).unwrap();
+
+        assert_eq!(broken.len(), 1, "nothing on disk matches");
+        assert!(excluded.is_empty());
+    }
+
+    #[test]
+    fn reconciliation_mirrors_the_indexers_matching_rules() {
+        // If these drift apart, health calls a link broken that the indexer
+        // would happily resolve. Covers: bare basename, explicit .md, and a
+        // nested path referenced by basename only.
+        let vault = vault_with(&["deep/nested/Target.md"]);
+        for target in ["Target", "Target.md", "deep/nested/Target"] {
+            let (broken, excluded) =
+                reconcile_links_with_disk(vec![link(target)], vault.path()).unwrap();
+            assert!(broken.is_empty(), "{target} should have matched on disk");
+            assert_eq!(excluded.len(), 1, "{target}");
+        }
+    }
+
+    #[test]
+    fn basename_match_is_case_insensitive() {
+        let vault = vault_with(&["Notes/MyNote.md"]);
+        let (broken, _) = reconcile_links_with_disk(vec![link("mynote")], vault.path()).unwrap();
+        assert!(
+            broken.is_empty(),
+            "indexer matches basenames case-insensitively"
+        );
+    }
+
+    #[test]
+    fn report_flags_when_the_split_did_not_run() {
+        // Without a vault path the two classes cannot be separated. The report
+        // must say so rather than emit an empty excluded_links that reads as
+        // "there were none".
+        let store = setup_health_store();
+        store
+            .insert_unresolved_link("note.md", "somewhere.md")
+            .unwrap();
+        let config = HealthConfig {
+            daily_folder: None,
+            inbox_folder: None,
+            vault_path: None,
+        };
+        let report = generate_health_report(&store, &config).unwrap();
+
+        assert!(!report.disk_reconciled, "must not claim it reconciled");
+        assert!(report.excluded_links.is_empty());
+        assert_eq!(
+            report.broken_links.len(),
+            1,
+            "unpartitioned, not silently dropped"
+        );
+    }
+
+    #[test]
+    fn unreadable_vault_degrades_instead_of_failing() {
+        let store = setup_health_store();
+        store
+            .insert_unresolved_link("note.md", "somewhere.md")
+            .unwrap();
+        let config = HealthConfig {
+            daily_folder: None,
+            inbox_folder: None,
+            vault_path: Some(std::path::PathBuf::from("/nonexistent/vault/xyz")),
+        };
+        let report = generate_health_report(&store, &config).unwrap();
+
+        assert!(!report.disk_reconciled);
+        assert_eq!(report.broken_links.len(), 1, "report still produced");
+    }
 
     fn setup_health_store() -> Store {
         let store = Store::open_memory().unwrap();
@@ -166,6 +369,7 @@ mod tests {
         let config = HealthConfig {
             daily_folder: Some("daily/".to_string()),
             inbox_folder: None,
+            vault_path: None,
         };
         let orphans = find_orphans(&store, &config).unwrap();
         // linked.md has outgoing edge, orphan.md has incoming edge — both connected.
@@ -190,6 +394,7 @@ mod tests {
         let config = HealthConfig {
             daily_folder: None,
             inbox_folder: None,
+            vault_path: None,
         };
         let orphans = find_orphans(&store, &config).unwrap();
         // connected.md has no edges at all — it's the orphan.
@@ -233,6 +438,7 @@ mod tests {
         let config = HealthConfig {
             daily_folder: Some("daily/".to_string()),
             inbox_folder: Some("00-Inbox/".to_string()),
+            vault_path: None,
         };
         let report = generate_health_report(&store, &config).unwrap();
         assert_eq!(report.total_files, 2);

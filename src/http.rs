@@ -614,6 +614,8 @@ async fn handle_health(
     let config = health::HealthConfig {
         daily_folder: profile_ref.and_then(|p| p.structure.folders.daily.clone()),
         inbox_folder: profile_ref.and_then(|p| p.structure.folders.inbox.clone()),
+        // Lets health tell "target is missing" from "target is excluded".
+        vault_path: Some((*state.vault_path).clone()),
     };
     let report = health::generate_health_report(&store, &config)
         .map_err(|e| ApiError::internal(&format!("{e:#}")))?;
