@@ -16,6 +16,7 @@ use tower_http::cors::{Any, CorsLayer};
 
 use crate::config::{ApiKeyConfig, HttpConfig};
 use crate::context::{self, ContextParams};
+use crate::gpu::GpuGate;
 use crate::health;
 use crate::llm::{EmbedModel, OrchestratorModel, RerankModel};
 use crate::profile::VaultProfile;
@@ -38,6 +39,8 @@ pub struct ApiState {
     /// Read-only connections for the search path. `None` falls back to the
     /// exclusive `store` lock, which serializes concurrent searches.
     pub read_pool: Option<Arc<ReadPool>>,
+    /// Admission control for GPU-backed model work. `None` means ungated.
+    pub gpu_gate: Option<Arc<GpuGate>>,
     pub embedder: Arc<Mutex<Box<dyn EmbedModel + Send>>>,
     pub vault_path: Arc<std::path::PathBuf>,
     pub profile: Arc<Option<VaultProfile>>,
@@ -468,6 +471,13 @@ async fn handle_search(
     // Costs nothing between searches -- the embedder mutex already serializes
     // this phase. Mirrors the MCP search tool in serve.rs.
     let prepared = {
+        // Gated only when a reranker exists: the gate stops embed and rerank
+        // interleaving on one device, and with no reranker there is nothing to
+        // interleave with.
+        let _gpu = match (&state.gpu_gate, &state.reranker) {
+            (Some(g), Some(_)) => Some(g.enter().await),
+            _ => None,
+        };
         let store = state.store.lock().await;
         let mut embedder = state.embedder.lock().await;
         let mut orch_guard = match &state.orchestrator {
@@ -486,6 +496,12 @@ async fn handle_search(
     }
     .map_err(|e| ApiError::internal(&format!("{e:#}")))?;
 
+    // Gated only when a reranker is present: without one this phase touches no
+    // GPU and gating it would serialize the store work the pool parallelizes.
+    let _gpu = match (&state.gpu_gate, &state.reranker) {
+        (Some(g), Some(_)) => Some(g.enter().await),
+        _ => None,
+    };
     let store = acquire_read(state.read_pool.as_deref(), &state.store).await;
     let mut rerank_guard = match &state.reranker {
         Some(r) => Some(r.lock().await),
@@ -1190,6 +1206,7 @@ mod tests {
             // In-memory stores cannot be reopened by a second connection, so
             // these tests exercise the exclusive-lock fallback.
             read_pool: None,
+            gpu_gate: None,
             embedder: Arc::new(Mutex::new(
                 Box::new(DummyEmbedder) as Box<dyn EmbedModel + Send>
             )),

@@ -4,6 +4,7 @@ pub mod context;
 pub mod docid;
 pub mod fts;
 pub mod fusion;
+pub mod gpu;
 pub mod graph;
 pub mod health;
 pub mod http;

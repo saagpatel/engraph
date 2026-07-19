@@ -15,6 +15,7 @@ use tokio::sync::Mutex;
 
 use crate::config::Config;
 use crate::context::{self, ContextParams};
+use crate::gpu::GpuGate;
 use crate::llm::{EmbedModel, OrchestratorModel, RerankModel};
 use crate::profile::VaultProfile;
 use crate::readpool::{self, ReadPool};
@@ -242,6 +243,8 @@ pub struct EngraphServer {
     /// Read-only connections used by the search path so concurrent searches do
     /// not serialize behind the single write connection.
     read_pool: Arc<ReadPool>,
+    /// Admission control for GPU-backed model work (embed, rerank).
+    gpu_gate: Arc<GpuGate>,
     embedder: Arc<Mutex<Box<dyn EmbedModel + Send>>>,
     vault_path: Arc<PathBuf>,
     profile: Arc<Option<VaultProfile>>,
@@ -394,6 +397,14 @@ impl EngraphServer {
         // between searches, because the embedder mutex below already serializes
         // this phase.
         let prepared = {
+            // Gated only when a reranker exists. The gate's purpose is to stop
+            // embed and rerank interleaving on one device; with no reranker
+            // there is nothing to interleave with, and the embedder mutex
+            // already serializes this phase on its own.
+            let _gpu = match &self.reranker {
+                Some(_) => Some(self.gpu_gate.enter().await),
+                None => None,
+            };
             let store = self.store.lock().await;
             let mut embedder = self.embedder.lock().await;
             let mut orch_guard = match &self.orchestrator {
@@ -414,7 +425,15 @@ impl EngraphServer {
 
         // Phase 2: retrieval and fusion. Store-bound, so it overlaps across
         // requests once the embedder above has been released.
+        //
+        // The GPU gate is taken only when a reranker is present. Without one
+        // this phase touches no GPU, and gating it would serialize the pure
+        // store work the read pool exists to parallelize.
         let output = {
+            let _gpu = match &self.reranker {
+                Some(_) => Some(self.gpu_gate.enter().await),
+                None => None,
+            };
             let store = self.read_pool.get().await;
             let mut rerank_guard = match &self.reranker {
                 Some(r) => Some(r.lock().await),
@@ -1198,10 +1217,13 @@ pub async fn run_serve(
         shared_vector_cache,
     )?);
     let http_read_pool = read_pool.clone();
+    let gpu_gate = Arc::new(GpuGate::default());
+    let http_gpu_gate = gpu_gate.clone();
 
     let server = EngraphServer {
         store: store_arc,
         read_pool,
+        gpu_gate,
         embedder: embedder_arc,
         vault_path: vault_path_arc,
         profile: profile_arc,
@@ -1221,6 +1243,7 @@ pub async fn run_serve(
         let api_state = crate::http::ApiState {
             store: http_store,
             read_pool: Some(http_read_pool),
+            gpu_gate: Some(http_gpu_gate),
             embedder: http_embedder,
             vault_path: http_vault_path,
             profile: http_profile,
