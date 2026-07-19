@@ -164,10 +164,29 @@ impl Default for Config {
     }
 }
 
+/// Environment variable that overrides the canonical data directory.
+///
+/// Exists so benchmarks and tests can point at a scratch index instead of the
+/// operator's live `~/.engraph`. An empty value is ignored rather than treated
+/// as a path, so a blank export can't silently redirect the store to `""`.
+pub const DATA_DIR_ENV: &str = "ENGRAPH_DATA_DIR";
+
 impl Config {
-    /// Canonical data directory: `~/.engraph/`.
+    /// Canonical data directory: `$ENGRAPH_DATA_DIR`, else `~/.engraph/`.
     pub fn data_dir() -> Result<PathBuf> {
-        let home = dirs::home_dir().context("could not determine home directory")?;
+        Self::resolve_data_dir(std::env::var_os(DATA_DIR_ENV), dirs::home_dir())
+    }
+
+    /// Pure resolution of the data directory, split out so it is testable
+    /// without mutating process-global environment state.
+    fn resolve_data_dir(
+        override_value: Option<std::ffi::OsString>,
+        home: Option<PathBuf>,
+    ) -> Result<PathBuf> {
+        if let Some(value) = override_value.filter(|v| !v.is_empty()) {
+            return Ok(PathBuf::from(value));
+        }
+        let home = home.context("could not determine home directory")?;
         Ok(home.join(".engraph"))
     }
 
@@ -249,9 +268,39 @@ mod tests {
     }
 
     #[test]
-    fn data_dir_ends_with_engraph() {
-        let dir = Config::data_dir().unwrap();
-        assert!(dir.ends_with(".engraph"));
+    fn data_dir_defaults_to_home_dot_engraph() {
+        let dir = Config::resolve_data_dir(None, Some(PathBuf::from("/home/someone"))).unwrap();
+        assert_eq!(dir, PathBuf::from("/home/someone/.engraph"));
+    }
+
+    #[test]
+    fn data_dir_env_override_wins_over_home() {
+        let dir = Config::resolve_data_dir(
+            Some(std::ffi::OsString::from("/scratch/lab-index")),
+            Some(PathBuf::from("/home/someone")),
+        )
+        .unwrap();
+        assert_eq!(dir, PathBuf::from("/scratch/lab-index"));
+    }
+
+    /// A blank `ENGRAPH_DATA_DIR` must not redirect the store to `""` — it
+    /// falls back to the home default instead.
+    #[test]
+    fn data_dir_ignores_empty_override() {
+        let dir = Config::resolve_data_dir(
+            Some(std::ffi::OsString::from("")),
+            Some(PathBuf::from("/home/someone")),
+        )
+        .unwrap();
+        assert_eq!(dir, PathBuf::from("/home/someone/.engraph"));
+    }
+
+    /// The override is what makes the directory resolvable at all when there is
+    /// no home directory; without it this is an error.
+    #[test]
+    fn data_dir_errors_without_home_or_override() {
+        assert!(Config::resolve_data_dir(None, None).is_err());
+        assert!(Config::resolve_data_dir(Some(std::ffi::OsString::from("/scratch")), None).is_ok());
     }
 
     #[test]
