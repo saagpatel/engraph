@@ -57,6 +57,12 @@ impl VectorCache {
             .len()
     }
 
+    /// Whether the cache holds no vectors. Present because a public `len`
+    /// without `is_empty` is a clippy error under CI's `-D warnings`.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     /// Search all cached vectors by cosine distance.
     pub fn search(
         &self,
