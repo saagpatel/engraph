@@ -1,6 +1,6 @@
 # Q9a branch summary: read pool, GPU gate, and four refuted premises
 
-Branch `fable/q9a-read-pool`, 7 commits on top of `1f1b205`. 513 tests, `fmt` /
+Branch `fable/q9a-read-pool`, 9 commits on top of `1f1b205`. 513 tests, `fmt` /
 `clippy -D warnings` / `test` all green. Nothing pushed. The live `~/.engraph`
 index was checksum-verified unchanged before and after every experiment.
 
@@ -41,10 +41,14 @@ simply never opened a second connection.
 | `4a9e3d9` | Poison-recovery fix in the pool, from code review. |
 | `b02dd73` | `exclude` honors `*.ext` patterns instead of matching them literally. |
 
-Both the read pool and the embedder split were required. Either alone measures
-as nothing. The same two-phase pattern had to be applied to `serve.rs` *and*
-`http.rs`, which carried duplicate copies of the lock code; measuring only one
-would have shown no change and wrongly discredited the pool.
+The same two-phase pattern had to be applied to `serve.rs` *and* `http.rs`,
+which carried duplicate copies of the lock code; measuring only one would have
+shown no change and wrongly discredited the pool.
+
+> **Correction.** An earlier version of this document claimed "both the read
+> pool and the embedder split were required, either alone measures as nothing."
+> That was asserted, never tested, and it is wrong. See "Does the pool earn its
+> keep?" below. The embedder split appears to be doing the work.
 
 ## Measurements
 
@@ -72,6 +76,63 @@ Across all six ungated intelligence-on runs collected, four came in below 1.0,
 meaning concurrency was losing to sequential. Gated: zero. At n=3 this is
 directional rather than conclusive, but the gate wins on min, median, and worst
 case, and it removes the regime where adding load reduces throughput.
+
+## Does the pool earn its keep? Unresolved, and the search-only answer is no.
+
+The baseline comparison above changes two things at once: it adds the read pool
+*and* releases the embedder before store work. It never isolated them. Setting
+`ENGRAPH_READ_POOL_SIZE=1` reproduces "phase split, no pooling" on the same
+binary, which separates the two.
+
+Search-only, 8 concurrent, five runs each:
+
+```
+300 notes    pool=1  0.72 0.94 1.29 1.66 1.68   median 1.29x
+300 notes    pool=4  0.77 0.99 1.08 1.08 1.24   median 1.08x
+3920 chunks  pool=1  1.82 1.09 1.11 1.28 1.05   median 1.11x
+3920 chunks  pool=4  1.00 1.65 1.18 1.31 0.94   median 1.18x
+```
+
+At both scales the pool contributes nothing measurable, and at 300 notes it
+measures slightly *worse*. The scale hypothesis in the caveats section, that
+pooling would matter more on a larger index, is not supported: a 13x larger
+index did not change the picture. **On this evidence the concurrency win comes
+from releasing the embedder, not from pooling connections.**
+
+That is not the whole story, because a search-only benchmark cannot see the
+pool's actual purpose: keeping reads off the single write connection. Under
+mixed load the pool should stop searches queueing behind indexing and MCP
+writes. `bench/mixed.mjs` measures that.
+
+Write pressure clearly hurts readers. With writes succeeding cleanly (0 write
+failures) at pool=1, search p50 goes from 105ms quiet to 399ms under writes,
+a **3.79x** degradation. That is the symptom the pool exists to relieve.
+
+The A/B is suggestive but not clean. One paired run completed with both legs on
+the same binary:
+
+```
+3920 chunks, searches under continuous writes
+  pool=1   quiet p50 111ms -> under writes p50 239ms   p95 565ms   2.15x
+  pool=4   quiet p50 132ms -> under writes p50 234ms   p95 324ms   1.77x
+```
+
+pool=4 degrades less and its p95 under writes is far better, 324ms against
+565ms. Both legs are contaminated the same way, though: filename collisions from
+an earlier run meant roughly 75% of writes were rejected, so that pair measured
+partly rejected-request pressure rather than real indexing. `bench/mixed.mjs`
+now uses a run-unique filename prefix and hard-fails when more than 10% of
+writes fail, so this specific contamination cannot recur silently.
+
+The clean re-run got pool=1 (3.79x, quoted above) and then **could not obtain
+pool=4**: the release binary was deleted mid-run by an external process, twice,
+at the same point. The whole `target/` directory disappears with 193Gi free,
+most likely a scheduled build-artifact sweep over `~/Projects`. Each rebuild
+costs about 19 minutes and then gets deleted again.
+
+So: the pool looks like it helps under mixed load, on a contaminated but
+symmetric comparison. That is the honest state. It is not proof, and the clean
+number is one 19-minute rebuild away from existing.
 
 ## The regression this branch introduced and then fixed
 
@@ -120,14 +181,17 @@ appearing to succeed.
 
 ## Caveats that should affect the merge decision
 
-- **Everything is measured on a 300-note synthetic index.** The real vault is
-  about 12K chunks, where the store-bound share of a search is larger and
-  pooling would likely matter more. The pool's value at true scale is projected,
-  not measured.
-- **It could not be measured at true scale** because every file under the
-  SecondBrain vault is currently an iCloud dataless file. Content reads hang;
-  `ls` and `stat` return instantly, which is why a naive probe using `wc -c`
-  reports success. A reindex would hang the same way.
+- **The scale caveat was tested and did not hold.** A 3920-chunk synthetic index
+  (13x the original, about 35% of the live 11,251) showed the same picture as
+  300 notes. The claim that pooling would matter more at scale is not supported
+  by the evidence available.
+- **The real vault still could not be used.** Every file under the SecondBrain
+  vault is an iCloud dataless file. Content reads hang while `ls` and `stat`
+  return instantly, which is why a naive probe using `wc -c` reports success and
+  is the wrong instrument. This is not vault-specific: a file in an unrelated
+  iCloud folder hangs identically while local files read fine, so all of iCloud
+  Drive is affected and `brctl` cannot see the path ("client zone not found",
+  it is the legacy CloudDocs tool). A reindex would hang the same way.
 - **Intelligence-on is safe, not fast.** The gate removes the harmful regime. It
   does not make concurrent intelligence-enabled search meaningfully faster, and
   the reranker remains a single exclusive model.
@@ -136,16 +200,30 @@ appearing to succeed.
 
 ## Open decisions for the operator
 
-1. **Merge as-is?** The intelligence-off win is solid. The intelligence-on story
+1. **Does the ReadPool stay?** This is now the main question. The concurrency
+   win is attributable to the embedder phase split; the pool measured neutral
+   at two scales for search-only load. Its justification rests on mixed
+   read/write load, where it looks genuinely useful (1.77x versus 2.15x
+   degradation, p95 324ms versus 565ms) on a contaminated but symmetric
+   comparison. Recommended: rerun `bench/mixed.mjs` at pool=1 and pool=4 on a
+   build that survives, and decide on that one number. If the pool holds its
+   advantage, keep it; if not, dropping it removes `readpool.rs`, the
+   `Option<ReadPool>` plumbing, and a chunk of review surface while keeping the
+   entire measured concurrency win.
+2. **The build-artifact sweep needs an exemption or a pause.** Whatever deletes
+   `target/` under `~/Projects` made the deciding measurement unobtainable
+   twice, at ~19 minutes per rebuild. Any further perf work on this repo needs
+   that addressed first.
+3. **Merge as-is?** The intelligence-off win is solid. The intelligence-on story
    is "no longer harmful", which is honest but less exciting than the commit
    subjects imply.
-2. **`globset` dependency.** `exclude` now supports `dir/`, `*.ext`, and
+4. **`globset` dependency.** `exclude` now supports `dir/`, `*.ext`, and
    substring, and warns on syntax it cannot honor. Real glob support needs
    `globset`, which was not added because dependency installs require operator
    approval.
-3. **Q8 consolidation.** Removing the duplicate storage means choosing one
+5. **Q8 consolidation.** Removing the duplicate storage means choosing one
    source of truth: either the vector cache reads from vec0, or vec0 is dropped
    for serve-mode stores. Worth about 11MB and a design decision.
-4. **Q1 remains untouched.** `intelligence` is still a single boolean, so a
+6. **Q1 remains untouched.** `intelligence` is still a single boolean, so a
    rerank-only configuration cannot be tested. That limits any future work on
    the reranker, which is now known to dominate intelligence-on latency.
