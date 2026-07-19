@@ -5,13 +5,85 @@ use anyhow::Result;
 use crate::fusion::RankedResult;
 use crate::store::Store;
 
-/// Extract unique wikilink targets from text.
-/// Handles [[Target]], [[Target|Display]], [[Target#Heading]].
-/// Skips embeds (![[...]]).
+/// Is this line a fence marker? Returns `(char, run_length)`.
+///
+/// CommonMark allows up to three leading spaces and a run of three or more
+/// backticks or tildes.
+fn fence_marker(trimmed: &str) -> Option<(char, usize)> {
+    let c = trimmed.chars().next()?;
+    if c != '`' && c != '~' {
+        return None;
+    }
+    let n = trimmed.chars().take_while(|&x| x == c).count();
+    if n >= 3 { Some((c, n)) } else { None }
+}
+
+/// Blank out inline code spans so their contents cannot be read as links.
+///
+/// Replaces span contents with spaces rather than deleting them, so byte
+/// offsets are unchanged and the caller can scan the result normally. Only
+/// single-backtick delimiters are handled; a ``span containing ` a backtick``
+/// is rare enough in a vault that the extra machinery is not worth it, and
+/// mishandling it can only under-suppress, never invent a link.
+fn blank_inline_code(line: &str) -> String {
+    let mut out = String::with_capacity(line.len());
+    let mut in_code = false;
+    for ch in line.chars() {
+        if ch == '`' {
+            in_code = !in_code;
+            out.push(' ');
+        } else if in_code {
+            out.extend(std::iter::repeat_n(' ', ch.len_utf8()));
+        } else {
+            out.push(ch);
+        }
+    }
+    out
+}
+
+/// Extract unique wikilink targets from markdown, ignoring code.
+///
+/// Handles `[[Target]]`, `[[Target|Display]]`, `[[Target#Heading]]`, and skips
+/// embeds (`![[...]]`).
+///
+/// Text inside fenced code blocks and inline code spans is NOT scanned. A
+/// `[[link]]` in a code fence is a code sample, not a link, and treating it as
+/// one manufactures broken-link reports that can never be cleared: the target
+/// was never meant to exist. In this operator's vault, notes that *document*
+/// wikilink syntax produced targets like `wiki/lessons/foo` and the bare word
+/// `wikilink`, which no amount of reindexing could resolve.
 pub fn extract_wikilink_targets(text: &str) -> Vec<String> {
-    let bytes = text.as_bytes();
     let mut targets = Vec::new();
     let mut seen = HashSet::new();
+    let mut fence: Option<(char, usize)> = None;
+
+    for raw_line in text.lines() {
+        let trimmed = raw_line.trim_start();
+        // Only up to three leading spaces may precede a fence.
+        let indent = raw_line.len() - trimmed.len();
+        if indent <= 3
+            && let Some((c, n)) = fence_marker(trimmed)
+        {
+            match fence {
+                None => fence = Some((c, n)),
+                // A closing fence matches the opener's char and is at least
+                // as long. An info string is only legal on the opener.
+                Some((oc, on)) if c == oc && n >= on => fence = None,
+                Some(_) => {}
+            }
+            continue;
+        }
+        if fence.is_some() {
+            continue;
+        }
+        scan_line_for_links(&blank_inline_code(raw_line), &mut targets, &mut seen);
+    }
+
+    targets
+}
+
+fn scan_line_for_links(text: &str, targets: &mut Vec<String>, seen: &mut HashSet<String>) {
+    let bytes = text.as_bytes();
     let mut i = 0;
 
     while i + 1 < bytes.len() {
@@ -41,7 +113,6 @@ pub fn extract_wikilink_targets(text: &str) -> Vec<String> {
         }
         i += 1;
     }
-    targets
 }
 
 /// Extract query terms for relevance filtering.
@@ -200,6 +271,86 @@ mod tests {
         let text = "[[Note#Section|Custom Display]]";
         let targets = extract_wikilink_targets(text);
         assert_eq!(targets, vec!["Note"]); // strip both heading and display
+    }
+
+    #[test]
+    #[test]
+    fn fenced_code_is_not_scanned_for_links() {
+        // The real shape from the vault: an audit note documenting wikilink
+        // syntax. Every target below was reported as a permanently broken
+        // link that no reindex could clear, because none was ever a link.
+        let text = "\
+Wikilinks look like this:
+
+```
+[[wiki/lessons/foo]]
+[[wiki/ops/X]]
+```
+
+But [[Real Note]] is a link.
+";
+        let targets = extract_wikilink_targets(text);
+        assert_eq!(targets, vec!["Real Note"]);
+    }
+
+    #[test]
+    fn inline_code_is_not_scanned_for_links() {
+        let text = "Use `[[wikilink]]` syntax, and see [[Real Note]].";
+        let targets = extract_wikilink_targets(text);
+        assert_eq!(targets, vec!["Real Note"]);
+    }
+
+    #[test]
+    fn tilde_fences_and_info_strings_are_handled() {
+        let text = "\
+~~~markdown
+[[inside tildes]]
+~~~
+```rust
+// [[inside rust fence]]
+```
+[[outside]]
+";
+        assert_eq!(extract_wikilink_targets(text), vec!["outside"]);
+    }
+
+    #[test]
+    fn a_longer_closing_fence_closes_and_a_shorter_one_does_not() {
+        // CommonMark: the closer must use the same char and be at least as
+        // long as the opener. Getting this wrong silently swallows the rest
+        // of a document, which would suppress real links.
+        let text = "\
+````
+[[hidden]]
+```
+[[still hidden]]
+````
+[[visible]]
+";
+        assert_eq!(extract_wikilink_targets(text), vec!["visible"]);
+    }
+
+    #[test]
+    fn four_space_indent_is_not_a_fence_marker() {
+        // Only up to three leading spaces may introduce a fence. Treating a
+        // deeper indent as one would open a fence that never closes and drop
+        // every subsequent link.
+        let text = "    ``` not a fence\n[[still a link]]\n";
+        assert_eq!(extract_wikilink_targets(text), vec!["still a link"]);
+    }
+
+    #[test]
+    fn suppression_does_not_leak_past_a_closed_fence() {
+        // Guard against over-suppression: the whole risk of this change is
+        // silently dropping real links.
+        let text = "[[before]]\n```\n[[during]]\n```\n[[after]]\n";
+        assert_eq!(extract_wikilink_targets(text), vec!["before", "after"]);
+    }
+
+    #[test]
+    fn backtick_blanking_preserves_links_later_on_the_line() {
+        let text = "Run `engraph search` then open [[Results]].";
+        assert_eq!(extract_wikilink_targets(text), vec!["Results"]);
     }
 
     #[test]
