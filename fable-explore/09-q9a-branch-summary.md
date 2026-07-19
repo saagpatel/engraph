@@ -225,6 +225,14 @@ appearing to succeed.
 5. **Q8 consolidation.** Removing the duplicate storage means choosing one
    source of truth: either the vector cache reads from vec0, or vec0 is dropped
    for serve-mode stores. Worth about 11MB and a design decision.
-6. **Q1 remains untouched.** `intelligence` is still a single boolean, so a
-   rerank-only configuration cannot be tested. That limits any future work on
-   the reranker, which is now known to dominate intelligence-on latency.
+6. **Q1 DONE, and it produced an operating decision.** `orchestrator` and
+   `reranker` are now independent toggles inheriting from `intelligence`.
+   Measured immediately (3920 chunks, release, two runs each, sequential
+   per-request mean): both 4572/7092ms, rerank-only 6176/4067ms, orch-only
+   328/258ms. The first two swap order between runs, so the orchestrator's
+   cost is not measurable once cached. The reranker is ~95% of
+   intelligence-enabled latency and all of its variance. **Orchestrator-only
+   is a real operating point**: query expansion and intent-adaptive lane
+   weights for ~300ms against 4-7s with the reranker. Worth deciding whether
+   the reranker's relevance gain justifies 15-20x latency, which is now an
+   answerable question.
