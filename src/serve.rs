@@ -1188,7 +1188,7 @@ pub async fn run_serve(
     // connections are read-only and cannot do either themselves.
     let read_pool = Arc::new(ReadPool::open(
         &db_path,
-        readpool::DEFAULT_READ_POOL_SIZE,
+        readpool::configured_size(),
         shared_vector_cache,
     )?);
     let http_read_pool = read_pool.clone();

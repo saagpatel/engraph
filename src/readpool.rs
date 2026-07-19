@@ -22,10 +22,29 @@ use crate::vecstore::VectorCache;
 
 /// Default number of read connections.
 ///
-/// Reads are short and store-bound, so a handful is enough to keep the
-/// pipeline busy; each connection costs an open file handle and its own SQLite
-/// page cache, so this is not free to raise without measuring.
+/// Retrieval is ~79% of a search and is store-bound, so this is effectively the
+/// concurrency limit of the whole search path: at size 4 with 8 concurrent
+/// searches, requests spent 147ms of a 217ms retrieve phase just waiting for a
+/// connection. Each connection costs a file handle and its own SQLite page
+/// cache (the vector cache is shared), so it is bounded rather than unlimited.
 pub const DEFAULT_READ_POOL_SIZE: usize = 4;
+
+/// Environment override for the read pool size, so it can be swept against a
+/// real workload without a rebuild.
+pub const READ_POOL_SIZE_ENV: &str = "ENGRAPH_READ_POOL_SIZE";
+
+/// Configured pool size: `$ENGRAPH_READ_POOL_SIZE` when it parses to a
+/// positive integer, else [`DEFAULT_READ_POOL_SIZE`].
+pub fn configured_size() -> usize {
+    parse_pool_size(std::env::var(READ_POOL_SIZE_ENV).ok().as_deref())
+}
+
+/// Pure parse step, testable without touching process-global env state.
+fn parse_pool_size(raw: Option<&str>) -> usize {
+    raw.and_then(|v| v.trim().parse::<usize>().ok())
+        .filter(|n| *n > 0)
+        .unwrap_or(DEFAULT_READ_POOL_SIZE)
+}
 
 pub struct ReadPool {
     free: StdMutex<Vec<Store>>,
@@ -155,6 +174,21 @@ mod tests {
         let store = Store::open(&path).unwrap();
         drop(store);
         (dir, path)
+    }
+
+    #[test]
+    fn pool_size_falls_back_on_missing_or_invalid_values() {
+        assert_eq!(parse_pool_size(None), DEFAULT_READ_POOL_SIZE);
+        assert_eq!(parse_pool_size(Some("")), DEFAULT_READ_POOL_SIZE);
+        assert_eq!(parse_pool_size(Some("banana")), DEFAULT_READ_POOL_SIZE);
+        // Zero would mean a pool nobody can check out of.
+        assert_eq!(parse_pool_size(Some("0")), DEFAULT_READ_POOL_SIZE);
+    }
+
+    #[test]
+    fn pool_size_honors_a_valid_override() {
+        assert_eq!(parse_pool_size(Some("12")), 12);
+        assert_eq!(parse_pool_size(Some(" 6 ")), 6);
     }
 
     #[tokio::test]
