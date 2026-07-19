@@ -38,11 +38,60 @@ pub struct IndexFileResult {
 /// `.ignore` rules (within a git repo, per the crate's `require_git` default).
 /// Set it false to index files those VCS rules would skip; hidden entries
 /// (`.git/`, dotfiles) and the explicit `exclude` patterns are always skipped.
+/// Does a vault-relative path match any exclude pattern?
+///
+/// Three pattern forms, checked in order:
+///
+/// - `"name/"` — directory: matches when any path component equals `name`.
+/// - `"*.ext"` — suffix: matches when the path ends with `.ext`.
+/// - anything else — literal substring match.
+///
+/// The suffix form exists because `exclude` is documented as taking glob
+/// patterns and `*.canvas` is the example given in the config docs, but the
+/// literal-substring branch matched it against a real asterisk in the path and
+/// therefore never excluded anything. Silently. Patterns using glob syntax this
+/// does NOT understand are reported by [`warn_unsupported_patterns`] rather
+/// than quietly degrading to a substring match that cannot succeed.
+pub fn is_excluded(rel_path: &str, exclude: &[String]) -> bool {
+    exclude.iter().any(|pattern| {
+        if let Some(dir_name) = pattern.strip_suffix('/') {
+            rel_path.split('/').any(|component| component == dir_name)
+        } else if let Some(suffix) = pattern.strip_prefix('*') {
+            // `*.canvas` -> ends_with(".canvas"). A bare `*` excludes everything,
+            // which is what the pattern literally asks for.
+            rel_path.ends_with(suffix)
+        } else {
+            rel_path.contains(pattern.as_str())
+        }
+    })
+}
+
+/// Warn about exclude patterns containing glob syntax that [`is_excluded`]
+/// cannot honor, so they fail loudly at startup instead of silently indexing
+/// files the operator believed were excluded.
+///
+/// Only leading-`*` suffix globs are supported; `?`, `[...]`, and interior `*`
+/// would need a real glob engine.
+pub fn warn_unsupported_patterns(exclude: &[String]) {
+    for pattern in exclude {
+        let body = pattern.strip_prefix('*').unwrap_or(pattern);
+        if body.contains('*') || body.contains('?') || body.contains('[') {
+            tracing::warn!(
+                pattern = %pattern,
+                "exclude pattern uses glob syntax that is not supported; it will be \
+                 matched literally and probably will not exclude anything. Supported \
+                 forms: \"dir/\", \"*.ext\", or a plain substring"
+            );
+        }
+    }
+}
+
 pub fn walk_vault(
     path: &Path,
     exclude: &[String],
     respect_gitignore: bool,
 ) -> Result<Vec<PathBuf>> {
+    warn_unsupported_patterns(exclude);
     let mut builder = WalkBuilder::new(path);
     if respect_gitignore {
         builder.standard_filters(true); // respect .gitignore, .ignore, hidden, etc.
@@ -80,17 +129,7 @@ pub fn walk_vault(
         let rel = entry_path.strip_prefix(path).unwrap_or(entry_path);
         let rel_str = rel.to_string_lossy();
 
-        let excluded = exclude.iter().any(|pattern| {
-            // Support simple prefix/contains matching for directory patterns like ".obsidian/"
-            if pattern.ends_with('/') {
-                let dir_name = pattern.trim_end_matches('/');
-                rel_str.split('/').any(|component| component == dir_name)
-            } else {
-                rel_str.contains(pattern.as_str())
-            }
-        });
-
-        if excluded {
+        if is_excluded(&rel_str, exclude) {
             continue;
         }
 
@@ -755,6 +794,52 @@ fn run_index_inner(
         total_chunks,
         duration,
     })
+}
+
+#[cfg(test)]
+mod exclude_tests {
+    use super::is_excluded;
+
+    /// The bug this fix exists for: `*.canvas` is the example pattern in the
+    /// config docs, and the old literal-substring match compared it against a
+    /// real asterisk in the path, so it excluded nothing and said nothing.
+    #[test]
+    fn suffix_glob_excludes_matching_extension() {
+        let exclude = vec!["*.canvas".to_string()];
+        assert!(is_excluded("drawings/board.canvas", &exclude));
+        assert!(is_excluded("board.canvas", &exclude));
+        assert!(!is_excluded("notes/board.md", &exclude));
+    }
+
+    #[test]
+    fn directory_pattern_matches_any_component() {
+        let exclude = vec![".obsidian/".to_string()];
+        assert!(is_excluded(".obsidian/workspace.json", &exclude));
+        assert!(is_excluded("vault/.obsidian/plugins/x.js", &exclude));
+        // Must match a whole component, not a prefix of one.
+        assert!(!is_excluded(".obsidian-backup/notes.md", &exclude));
+    }
+
+    #[test]
+    fn plain_substring_still_matches() {
+        let exclude = vec!["raw".to_string()];
+        assert!(is_excluded("raw/dump.md", &exclude));
+        assert!(is_excluded("archive/raw-notes.md", &exclude));
+        assert!(!is_excluded("notes/clean.md", &exclude));
+    }
+
+    #[test]
+    fn empty_exclude_list_excludes_nothing() {
+        assert!(!is_excluded("anything/at/all.md", &[]));
+    }
+
+    #[test]
+    fn any_matching_pattern_excludes() {
+        let exclude = vec!["*.canvas".to_string(), "drafts/".to_string()];
+        assert!(is_excluded("drafts/idea.md", &exclude));
+        assert!(is_excluded("art/x.canvas", &exclude));
+        assert!(!is_excluded("published/post.md", &exclude));
+    }
 }
 
 #[cfg(test)]

@@ -119,7 +119,13 @@ pub struct Config {
     pub vault_path: Option<PathBuf>,
     /// Number of results to return from search.
     pub top_n: usize,
-    /// Glob patterns to exclude from indexing.
+    /// Patterns to exclude from indexing.
+    ///
+    /// Three supported forms, NOT full globs: `"dir/"` matches any path
+    /// component equal to `dir`; `"*.ext"` matches that file extension; any
+    /// other value is matched as a literal substring. Patterns using `?`,
+    /// `[...]`, or an interior `*` are logged as unsupported at index time
+    /// rather than silently matching nothing.
     pub exclude: Vec<String>,
     /// Number of files to process per embedding batch.
     pub batch_size: usize,
