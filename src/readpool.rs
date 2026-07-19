@@ -33,17 +33,38 @@ pub const DEFAULT_READ_POOL_SIZE: usize = 4;
 /// real workload without a rebuild.
 pub const READ_POOL_SIZE_ENV: &str = "ENGRAPH_READ_POOL_SIZE";
 
+/// Default number of candidates handed to the cross-encoder reranker.
+pub const DEFAULT_RERANK_CANDIDATES: usize = 30;
+
+/// Environment override for the reranker candidate count.
+pub const RERANK_CANDIDATES_ENV: &str = "ENGRAPH_RERANK_CANDIDATES";
+
+/// Configured reranker candidate count.
+///
+/// This is the dominant cost of an intelligence-enabled search: the reranker
+/// is a single exclusive model scoring each candidate in turn, so the count
+/// multiplies directly into latency and cannot overlap across requests.
+pub fn configured_rerank_candidates() -> usize {
+    parse_positive(
+        std::env::var(RERANK_CANDIDATES_ENV).ok().as_deref(),
+        DEFAULT_RERANK_CANDIDATES,
+    )
+}
+
 /// Configured pool size: `$ENGRAPH_READ_POOL_SIZE` when it parses to a
 /// positive integer, else [`DEFAULT_READ_POOL_SIZE`].
 pub fn configured_size() -> usize {
-    parse_pool_size(std::env::var(READ_POOL_SIZE_ENV).ok().as_deref())
+    parse_positive(
+        std::env::var(READ_POOL_SIZE_ENV).ok().as_deref(),
+        DEFAULT_READ_POOL_SIZE,
+    )
 }
 
 /// Pure parse step, testable without touching process-global env state.
-fn parse_pool_size(raw: Option<&str>) -> usize {
+fn parse_positive(raw: Option<&str>, fallback: usize) -> usize {
     raw.and_then(|v| v.trim().parse::<usize>().ok())
         .filter(|n| *n > 0)
-        .unwrap_or(DEFAULT_READ_POOL_SIZE)
+        .unwrap_or(fallback)
 }
 
 pub struct ReadPool {
@@ -177,18 +198,19 @@ mod tests {
     }
 
     #[test]
-    fn pool_size_falls_back_on_missing_or_invalid_values() {
-        assert_eq!(parse_pool_size(None), DEFAULT_READ_POOL_SIZE);
-        assert_eq!(parse_pool_size(Some("")), DEFAULT_READ_POOL_SIZE);
-        assert_eq!(parse_pool_size(Some("banana")), DEFAULT_READ_POOL_SIZE);
+    fn parse_positive_falls_back_on_missing_or_invalid_values() {
+        assert_eq!(parse_positive(None, 4), 4);
+        assert_eq!(parse_positive(Some(""), 4), 4);
+        assert_eq!(parse_positive(Some("banana"), 4), 4);
         // Zero would mean a pool nobody can check out of.
-        assert_eq!(parse_pool_size(Some("0")), DEFAULT_READ_POOL_SIZE);
+        assert_eq!(parse_positive(Some("0"), 4), 4);
+        assert_eq!(parse_positive(Some("-2"), 4), 4);
     }
 
     #[test]
-    fn pool_size_honors_a_valid_override() {
-        assert_eq!(parse_pool_size(Some("12")), 12);
-        assert_eq!(parse_pool_size(Some(" 6 ")), 6);
+    fn parse_positive_honors_a_valid_override() {
+        assert_eq!(parse_positive(Some("12"), 4), 12);
+        assert_eq!(parse_positive(Some(" 6 "), 4), 6);
     }
 
     #[tokio::test]
@@ -273,6 +295,29 @@ mod tests {
             reader.get_meta("probe_key").unwrap().as_deref(),
             Some("probe_value")
         );
+    }
+
+    /// Regression guard for a shipped bug: routing orchestration through a
+    /// pooled connection made its LLM-cache write fail, and the call site
+    /// discarded the error, so the cache never populated and every
+    /// intelligence-enabled search re-ran the orchestrator. The write must
+    /// return Err rather than appear to succeed.
+    #[tokio::test]
+    async fn pooled_connection_cannot_write_the_llm_cache() {
+        let (_dir, path) = seeded_db();
+        let pool = ReadPool::open(&path, 1, None).unwrap();
+        let reader = pool.get().await;
+
+        assert!(
+            reader.set_llm_cache("hash", "{}", "orchestrator").is_err(),
+            "read-only connection reported a successful llm_cache write"
+        );
+
+        // And the writer must still be able to, so the fix is to route the
+        // orchestration phase through the writable store, not to drop caching.
+        let writer = Store::open(&path).unwrap();
+        writer.set_llm_cache("hash", "{}", "orchestrator").unwrap();
+        assert_eq!(writer.get_llm_cache("hash").unwrap().as_deref(), Some("{}"));
     }
 
     /// The connections are read-only, so a stray write fails loudly instead of

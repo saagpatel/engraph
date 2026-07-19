@@ -463,8 +463,12 @@ async fn handle_search(
     // Two phases so the embedder is released before retrieval; holding it
     // across the store work would serialize concurrent searches even with a
     // read pool in place. Mirrors the MCP search tool in serve.rs.
+    // Phase 1 uses the WRITABLE store: orchestration caches its result, and a
+    // read-only connection makes that write fail so the cache never populates.
+    // Costs nothing between searches -- the embedder mutex already serializes
+    // this phase. Mirrors the MCP search tool in serve.rs.
     let prepared = {
-        let store = acquire_read(state.read_pool.as_deref(), &state.store).await;
+        let store = state.store.lock().await;
         let mut embedder = state.embedder.lock().await;
         let mut orch_guard = match &state.orchestrator {
             Some(o) => Some(o.lock().await),
@@ -476,7 +480,7 @@ async fn handle_search(
                 .map(|g| g.as_mut() as &mut dyn OrchestratorModel),
             reranker: None,
             store: &store,
-            rerank_candidates: 30,
+            rerank_candidates: crate::readpool::configured_rerank_candidates(),
         };
         search::prepare_query(&body.query, &mut *embedder, &mut config)
     }
@@ -494,7 +498,7 @@ async fn handle_search(
             .as_mut()
             .map(|g| g.as_mut() as &mut dyn RerankModel),
         store: &store,
-        rerank_candidates: 30,
+        rerank_candidates: crate::readpool::configured_rerank_candidates(),
     };
 
     let output = search::search_prepared(&body.query, top_n, &prepared, &mut config)

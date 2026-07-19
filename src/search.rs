@@ -166,9 +166,18 @@ fn orchestrate_query(
             } else {
                 let result = orch.orchestrate(query)?;
                 if let Ok(json) = serde_json::to_string(&result) {
-                    let _ = config
+                    // Not fatal, but never silent: a read-only store here means
+                    // the cache never populates and every search pays full LLM
+                    // orchestration. That failure mode shipped once already.
+                    if let Err(e) = config
                         .store
-                        .set_llm_cache(&cache_key, &json, "orchestrator");
+                        .set_llm_cache(&cache_key, &json, "orchestrator")
+                    {
+                        tracing::warn!(
+                            error = %e,
+                            "orchestration cache write failed; every search will re-run the orchestrator"
+                        );
+                    }
                 }
                 result
             }

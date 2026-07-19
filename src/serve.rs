@@ -387,8 +387,14 @@ impl EngraphServer {
         // serialize every concurrent search regardless of the read pool.
         //
         // Phase 1: orchestrate + embed. Needs the orchestrator and embedder.
+        //
+        // Uses the WRITABLE store, not the pool: orchestration writes its
+        // result to the LLM cache, and a read-only connection makes that write
+        // fail so the cache never populates. This costs nothing in contention
+        // between searches, because the embedder mutex below already serializes
+        // this phase.
         let prepared = {
-            let store = self.read_pool.get().await;
+            let store = self.store.lock().await;
             let mut embedder = self.embedder.lock().await;
             let mut orch_guard = match &self.orchestrator {
                 Some(o) => Some(o.lock().await),
@@ -400,7 +406,7 @@ impl EngraphServer {
                     .map(|g| g.as_mut() as &mut dyn OrchestratorModel),
                 reranker: None,
                 store: &store,
-                rerank_candidates: 30,
+                rerank_candidates: readpool::configured_rerank_candidates(),
             };
             search::prepare_query(&params.0.query, &mut *embedder, &mut config)
                 .map_err(|e| mcp_err(&e))?
@@ -420,7 +426,7 @@ impl EngraphServer {
                     .as_mut()
                     .map(|g| g.as_mut() as &mut dyn RerankModel),
                 store: &store,
-                rerank_candidates: 30,
+                rerank_candidates: readpool::configured_rerank_candidates(),
             };
             search::search_prepared(&params.0.query, top_n, &prepared, &mut config)
                 .map_err(|e| mcp_err(&e))?
