@@ -1130,7 +1130,7 @@ pub async fn run_serve(
 
     // Load intelligence models if enabled
     let orchestrator: Option<Arc<Mutex<Box<dyn OrchestratorModel + Send>>>> =
-        if config.intelligence_enabled() {
+        if config.orchestrator_enabled() {
             match crate::llm::LlamaOrchestrator::new(&models_dir, &config) {
                 Ok(orch) => Some(Arc::new(Mutex::new(
                     Box::new(orch) as Box<dyn OrchestratorModel + Send>
@@ -1144,8 +1144,7 @@ pub async fn run_serve(
             None
         };
 
-    let reranker: Option<Arc<Mutex<Box<dyn RerankModel + Send>>>> = if config.intelligence_enabled()
-    {
+    let reranker: Option<Arc<Mutex<Box<dyn RerankModel + Send>>>> = if config.reranker_enabled() {
         match crate::llm::LlamaRerank::new(&models_dir, &config) {
             Ok(rerank) => Some(Arc::new(Mutex::new(
                 Box::new(rerank) as Box<dyn RerankModel + Send>

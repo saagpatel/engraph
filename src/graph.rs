@@ -274,7 +274,6 @@ mod tests {
     }
 
     #[test]
-    #[test]
     fn fenced_code_is_not_scanned_for_links() {
         // The real shape from the vault: an audit note documenting wikilink
         // syntax. Every target below was reported as a permanently broken

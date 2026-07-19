@@ -520,7 +520,7 @@ pub fn run_search(
 
     // Load intelligence models if enabled.
     let mut orchestrator_model: Option<Box<dyn llm::OrchestratorModel>> =
-        if config.intelligence_enabled() {
+        if config.orchestrator_enabled() {
             match crate::llm::LlamaOrchestrator::new(&models_dir, config) {
                 Ok(o) => Some(Box::new(o)),
                 Err(e) => {
@@ -531,7 +531,7 @@ pub fn run_search(
         } else {
             None
         };
-    let mut reranker_model: Option<Box<dyn llm::RerankModel>> = if config.intelligence_enabled() {
+    let mut reranker_model: Option<Box<dyn llm::RerankModel>> = if config.reranker_enabled() {
         match crate::llm::LlamaRerank::new(&models_dir, config) {
             Ok(r) => Some(Box::new(r)),
             Err(e) => {
@@ -610,10 +610,13 @@ pub fn run_status(json: bool, data_dir: &Path) -> Result<()> {
     let model_name = format!("{model_uri} (dim {model_dim})");
 
     let config = crate::config::Config::load().unwrap_or_default();
-    let intelligence = if config.intelligence_enabled() {
-        "enabled"
-    } else {
-        "disabled"
+    // Reports the effective state, not the master switch, so a partial
+    // configuration cannot be misread as fully on or fully off.
+    let intelligence = match (config.orchestrator_enabled(), config.reranker_enabled()) {
+        (true, true) => "enabled",
+        (false, false) => "disabled",
+        (true, false) => "orchestrator only",
+        (false, true) => "reranker only",
     };
 
     let output = format_status(

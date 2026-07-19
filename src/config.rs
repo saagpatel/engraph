@@ -133,7 +133,23 @@ pub struct Config {
     /// to index files those VCS rules would otherwise skip.
     pub respect_gitignore: bool,
     /// Whether intelligence features are enabled. None = not yet configured.
+    ///
+    /// Master switch. `orchestrator` and `reranker` below inherit from this
+    /// unless set explicitly, so existing configs are unaffected.
     pub intelligence: Option<bool>,
+    /// Load the query orchestrator (intent classification + expansion).
+    /// `None` inherits [`Config::intelligence_enabled`].
+    #[serde(default)]
+    pub orchestrator: Option<bool>,
+    /// Load the cross-encoder reranker. `None` inherits
+    /// [`Config::intelligence_enabled`].
+    ///
+    /// Separable from the orchestrator because they have very different costs:
+    /// orchestration is cached per query, reranking is not and dominates
+    /// intelligence-enabled latency. Running one without the other could not be
+    /// tested while a single boolean gated both.
+    #[serde(default)]
+    pub reranker: Option<bool>,
     /// Model override URIs.
     pub models: ModelConfig,
     /// Obsidian integration settings.
@@ -160,6 +176,8 @@ impl Default for Config {
             batch_size: 64,
             respect_gitignore: true,
             intelligence: None,
+            orchestrator: None,
+            reranker: None,
             models: ModelConfig::default(),
             obsidian: ObsidianConfig::default(),
             agents: AgentsConfig::default(),
@@ -236,6 +254,17 @@ impl Config {
         self.intelligence.unwrap_or(false)
     }
 
+    /// Whether to load the query orchestrator.
+    pub fn orchestrator_enabled(&self) -> bool {
+        self.orchestrator
+            .unwrap_or_else(|| self.intelligence_enabled())
+    }
+
+    /// Whether to load the cross-encoder reranker.
+    pub fn reranker_enabled(&self) -> bool {
+        self.reranker.unwrap_or_else(|| self.intelligence_enabled())
+    }
+
     /// Save config to a specific path.
     pub fn save_to(&self, path: &Path) -> Result<()> {
         let content = toml::to_string_pretty(self).context("serializing config")?;
@@ -271,6 +300,87 @@ mod tests {
         assert_eq!(cfg.batch_size, 64);
         assert_eq!(cfg.exclude, vec![".obsidian/"]);
         assert!(cfg.vault_path.is_none());
+    }
+
+    /// Existing configs predate the sub-toggles and must behave exactly as
+    /// before: both models follow the master switch.
+    #[test]
+    fn sub_toggles_inherit_the_master_switch() {
+        let mut cfg = Config::default();
+
+        cfg.intelligence = Some(true);
+        assert!(cfg.orchestrator_enabled());
+        assert!(cfg.reranker_enabled());
+
+        cfg.intelligence = Some(false);
+        assert!(!cfg.orchestrator_enabled());
+        assert!(!cfg.reranker_enabled());
+
+        // Unconfigured means off, same as intelligence_enabled().
+        cfg.intelligence = None;
+        assert!(!cfg.orchestrator_enabled());
+        assert!(!cfg.reranker_enabled());
+    }
+
+    /// The point of Q1: reranker without orchestrator, which a single boolean
+    /// made impossible to express.
+    #[test]
+    fn reranker_only_is_expressible() {
+        let cfg = Config {
+            intelligence: Some(true),
+            orchestrator: Some(false),
+            ..Config::default()
+        };
+        assert!(!cfg.orchestrator_enabled());
+        assert!(cfg.reranker_enabled());
+    }
+
+    #[test]
+    fn orchestrator_only_is_expressible() {
+        let cfg = Config {
+            intelligence: Some(true),
+            reranker: Some(false),
+            ..Config::default()
+        };
+        assert!(cfg.orchestrator_enabled());
+        assert!(!cfg.reranker_enabled());
+    }
+
+    /// A sub-toggle set true must win even when the master switch is off, so
+    /// one model can be enabled without turning the other on as a side effect.
+    #[test]
+    fn sub_toggle_overrides_a_disabled_master() {
+        let cfg = Config {
+            intelligence: Some(false),
+            reranker: Some(true),
+            ..Config::default()
+        };
+        assert!(!cfg.orchestrator_enabled());
+        assert!(cfg.reranker_enabled());
+    }
+
+    #[test]
+    fn sub_toggles_round_trip_through_toml() {
+        let toml_str = r#"
+intelligence = true
+orchestrator = false
+reranker = true
+"#;
+        let cfg: Config = toml::from_str(toml_str).unwrap();
+        assert_eq!(cfg.orchestrator, Some(false));
+        assert_eq!(cfg.reranker, Some(true));
+        assert!(!cfg.orchestrator_enabled());
+        assert!(cfg.reranker_enabled());
+    }
+
+    /// A config written before the sub-toggles existed must still parse.
+    #[test]
+    fn config_without_sub_toggles_still_parses() {
+        let cfg: Config = toml::from_str("intelligence = true\n").unwrap();
+        assert_eq!(cfg.orchestrator, None);
+        assert_eq!(cfg.reranker, None);
+        assert!(cfg.orchestrator_enabled());
+        assert!(cfg.reranker_enabled());
     }
 
     #[test]
