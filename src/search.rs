@@ -93,6 +93,41 @@ pub fn search_internal(
     search_with_intelligence(query, top_n, embedder, &mut config)
 }
 
+/// Query analysis plus the query vectors, produced before any retrieval runs.
+///
+/// Exists so a concurrent server can hold the embedder lock for the embedding
+/// step alone instead of for the whole pipeline. Embedding is a single
+/// exclusive model and cannot overlap; the store work that follows it can, but
+/// only if the embedder has already been released by then.
+pub struct PreparedQuery {
+    pub orchestration: llm::OrchestrationResult,
+    /// Each expanded query paired with its embedding, in expansion order.
+    pub embedded: Vec<(String, Vec<f32>)>,
+}
+
+/// Phase 1: orchestrate the query and embed every expansion.
+///
+/// Needs the orchestrator (when present) and the embedder; the store is used
+/// only for the orchestration cache.
+pub fn prepare_query(
+    query: &str,
+    embedder: &mut impl EmbedModel,
+    config: &mut SearchConfig<'_>,
+) -> Result<PreparedQuery> {
+    let orchestration = orchestrate_query(query, config)?;
+    let mut embedded = Vec::with_capacity(orchestration.expansions.len());
+    for expanded_query in &orchestration.expansions {
+        let vector = embedder
+            .embed_one(expanded_query)
+            .context("embedding query")?;
+        embedded.push((expanded_query.clone(), vector));
+    }
+    Ok(PreparedQuery {
+        orchestration,
+        embedded,
+    })
+}
+
 /// Full intelligence search pipeline.
 ///
 /// 1. Orchestrate (intent + expansions + weights) — LLM if available, else heuristic.
@@ -100,12 +135,25 @@ pub fn search_internal(
 /// 3. RRF Pass 1 with top candidates.
 /// 4. Reranker scores each candidate (4th lane) if available.
 /// 5. RRF Pass 2 with all 4 lanes for final ranking.
+///
+/// Equivalent to `prepare_query` followed by `search_prepared`. Callers that
+/// need to release the embedder before retrieval should use those two directly.
 pub fn search_with_intelligence(
     query: &str,
     top_n: usize,
     embedder: &mut impl EmbedModel,
     config: &mut SearchConfig<'_>,
 ) -> Result<SearchOutput> {
+    let prepared = prepare_query(query, embedder, config)?;
+    search_prepared(query, top_n, &prepared, config)
+}
+
+/// Step 1 in isolation: classify intent and expand the query, using the LLM
+/// cache when an orchestrator is present.
+fn orchestrate_query(
+    query: &str,
+    config: &mut SearchConfig<'_>,
+) -> Result<llm::OrchestrationResult> {
     // --- Step 1: Orchestrate (with LLM cache when orchestrator is present) ---
     let orchestration = match &mut config.orchestrator {
         Some(orch) => {
@@ -132,21 +180,30 @@ pub fn search_with_intelligence(
         expansions = orchestration.expansions.len(),
         "orchestration complete"
     );
+    Ok(orchestration)
+}
+
+/// Phases 2-5: retrieval, fusion, reranking, and temporal scoring.
+///
+/// Takes query vectors that were computed earlier, so this half needs the
+/// store (and the reranker when present) but never the embedder.
+pub fn search_prepared(
+    query: &str,
+    top_n: usize,
+    prepared: &PreparedQuery,
+    config: &mut SearchConfig<'_>,
+) -> Result<SearchOutput> {
+    let orchestration = &prepared.orchestration;
     let weights = llm::LaneWeights::from_intent(&orchestration.intent);
 
     // --- Step 2: Run 3-lane retrieval for EACH expanded query ---
     let mut all_semantic: Vec<RankedResult> = Vec::new();
     let mut all_fts: Vec<RankedResult> = Vec::new();
 
-    for expanded_query in &orchestration.expansions {
+    for (expanded_query, query_vec) in &prepared.embedded {
         // Semantic lane
-        let query_vec = embedder
-            .embed_one(expanded_query)
-            .context("embedding query")?;
         let tombstones = std::collections::HashSet::new();
-        let raw_results = config
-            .store
-            .search_vec(&query_vec, top_n * 3, &tombstones)?;
+        let raw_results = config.store.search_vec(query_vec, top_n * 3, &tombstones)?;
 
         // Group semantic results by file_path, keeping best per file.
         let mut sem_by_file: HashMap<String, RankedResult> = HashMap::new();
@@ -382,7 +439,7 @@ pub fn search_with_intelligence(
     Ok(SearchOutput {
         results,
         fused: final_fused,
-        intent: Some(orchestration.intent),
+        intent: Some(orchestration.intent.clone()),
     })
 }
 

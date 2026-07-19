@@ -17,6 +17,7 @@ use crate::config::Config;
 use crate::context::{self, ContextParams};
 use crate::llm::{EmbedModel, OrchestratorModel, RerankModel};
 use crate::profile::VaultProfile;
+use crate::readpool::{self, ReadPool};
 use crate::search;
 use crate::store::Store;
 use crate::writer::FrontmatterOp;
@@ -238,6 +239,9 @@ pub type RecentWrites = Arc<Mutex<HashMap<PathBuf, SystemTime>>>;
 #[derive(Clone)]
 pub struct EngraphServer {
     store: Arc<Mutex<Store>>,
+    /// Read-only connections used by the search path so concurrent searches do
+    /// not serialize behind the single write connection.
+    read_pool: Arc<ReadPool>,
     embedder: Arc<Mutex<Box<dyn EmbedModel + Send>>>,
     vault_path: Arc<PathBuf>,
     profile: Arc<Option<VaultProfile>>,
@@ -377,33 +381,50 @@ impl EngraphServer {
     )]
     async fn search(&self, params: Parameters<SearchParams>) -> Result<CallToolResult, McpError> {
         let top_n = params.0.top_n.unwrap_or(10);
-        let store = self.store.lock().await;
-        let mut embedder = self.embedder.lock().await;
 
-        // Lock orchestrator and reranker if available for intelligence-enhanced search.
-        let mut orch_guard = match &self.orchestrator {
-            Some(o) => Some(o.lock().await),
-            None => None,
-        };
-        let mut rerank_guard = match &self.reranker {
-            Some(r) => Some(r.lock().await),
-            None => None,
+        // Split into two phases so the exclusive models are held only for the
+        // step that needs them. Holding the embedder across retrieval would
+        // serialize every concurrent search regardless of the read pool.
+        //
+        // Phase 1: orchestrate + embed. Needs the orchestrator and embedder.
+        let prepared = {
+            let store = self.read_pool.get().await;
+            let mut embedder = self.embedder.lock().await;
+            let mut orch_guard = match &self.orchestrator {
+                Some(o) => Some(o.lock().await),
+                None => None,
+            };
+            let mut config = search::SearchConfig {
+                orchestrator: orch_guard
+                    .as_mut()
+                    .map(|g| g.as_mut() as &mut dyn OrchestratorModel),
+                reranker: None,
+                store: &store,
+                rerank_candidates: 30,
+            };
+            search::prepare_query(&params.0.query, &mut *embedder, &mut config)
+                .map_err(|e| mcp_err(&e))?
         };
 
-        let mut config = search::SearchConfig {
-            orchestrator: orch_guard
-                .as_mut()
-                .map(|g| g.as_mut() as &mut dyn OrchestratorModel),
-            reranker: rerank_guard
-                .as_mut()
-                .map(|g| g.as_mut() as &mut dyn RerankModel),
-            store: &store,
-            rerank_candidates: 30,
+        // Phase 2: retrieval and fusion. Store-bound, so it overlaps across
+        // requests once the embedder above has been released.
+        let output = {
+            let store = self.read_pool.get().await;
+            let mut rerank_guard = match &self.reranker {
+                Some(r) => Some(r.lock().await),
+                None => None,
+            };
+            let mut config = search::SearchConfig {
+                orchestrator: None,
+                reranker: rerank_guard
+                    .as_mut()
+                    .map(|g| g.as_mut() as &mut dyn RerankModel),
+                store: &store,
+                rerank_candidates: 30,
+            };
+            search::search_prepared(&params.0.query, top_n, &prepared, &mut config)
+                .map_err(|e| mcp_err(&e))?
         };
-
-        let output =
-            search::search_with_intelligence(&params.0.query, top_n, &mut *embedder, &mut config)
-                .map_err(|e| mcp_err(&e))?;
         to_json_result(&output.results)
     }
 
@@ -1048,6 +1069,9 @@ pub async fn run_serve(
     let mut store = Store::open(&db_path)?;
     let cached_vectors = store.enable_vector_cache()?;
     tracing::info!(cached_vectors, "loaded in-memory vector cache for serve");
+    // Shared with the read pool below: without it pooled readers fall back to
+    // sqlite-vec KNN and each read gets slower than it was before pooling.
+    let shared_vector_cache = store.vector_cache();
     let config = Config::load()?;
     let embedder = crate::llm::LlamaEmbed::new(&models_dir, &config)?;
 
@@ -1159,8 +1183,19 @@ pub async fn run_serve(
         eprintln!("Read-only mode: write tools disabled, file watcher not started");
     }
 
+    // Opened after the writer's Store::open above, which is what puts the
+    // database into WAL mode and runs migrations. Order matters: these
+    // connections are read-only and cannot do either themselves.
+    let read_pool = Arc::new(ReadPool::open(
+        &db_path,
+        readpool::DEFAULT_READ_POOL_SIZE,
+        shared_vector_cache,
+    )?);
+    let http_read_pool = read_pool.clone();
+
     let server = EngraphServer {
         store: store_arc,
+        read_pool,
         embedder: embedder_arc,
         vault_path: vault_path_arc,
         profile: profile_arc,
@@ -1179,6 +1214,7 @@ pub async fn run_serve(
         let config = Config::load()?;
         let api_state = crate::http::ApiState {
             store: http_store,
+            read_pool: Some(http_read_pool),
             embedder: http_embedder,
             vault_path: http_vault_path,
             profile: http_profile,

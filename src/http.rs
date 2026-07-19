@@ -19,6 +19,7 @@ use crate::context::{self, ContextParams};
 use crate::health;
 use crate::llm::{EmbedModel, OrchestratorModel, RerankModel};
 use crate::profile::VaultProfile;
+use crate::readpool::{ReadPool, acquire_read};
 use crate::search;
 use crate::serve::{FrontmatterOpInput, FrontmatterOpKind, RecentWrites};
 use crate::store::Store;
@@ -34,6 +35,9 @@ use crate::writer::{
 #[derive(Clone)]
 pub struct ApiState {
     pub store: Arc<Mutex<Store>>,
+    /// Read-only connections for the search path. `None` falls back to the
+    /// exclusive `store` lock, which serializes concurrent searches.
+    pub read_pool: Option<Arc<ReadPool>>,
     pub embedder: Arc<Mutex<Box<dyn EmbedModel + Send>>>,
     pub vault_path: Arc<std::path::PathBuf>,
     pub profile: Arc<Option<VaultProfile>>,
@@ -455,22 +459,37 @@ async fn handle_search(
 ) -> Result<impl IntoResponse, ApiError> {
     authorize(&headers, &state, false)?;
     let top_n = body.top_n.unwrap_or(10);
-    let store = state.store.lock().await;
-    let mut embedder = state.embedder.lock().await;
 
-    let mut orch_guard = match &state.orchestrator {
-        Some(o) => Some(o.lock().await),
-        None => None,
-    };
+    // Two phases so the embedder is released before retrieval; holding it
+    // across the store work would serialize concurrent searches even with a
+    // read pool in place. Mirrors the MCP search tool in serve.rs.
+    let prepared = {
+        let store = acquire_read(state.read_pool.as_deref(), &state.store).await;
+        let mut embedder = state.embedder.lock().await;
+        let mut orch_guard = match &state.orchestrator {
+            Some(o) => Some(o.lock().await),
+            None => None,
+        };
+        let mut config = search::SearchConfig {
+            orchestrator: orch_guard
+                .as_mut()
+                .map(|g| g.as_mut() as &mut dyn OrchestratorModel),
+            reranker: None,
+            store: &store,
+            rerank_candidates: 30,
+        };
+        search::prepare_query(&body.query, &mut *embedder, &mut config)
+    }
+    .map_err(|e| ApiError::internal(&format!("{e:#}")))?;
+
+    let store = acquire_read(state.read_pool.as_deref(), &state.store).await;
     let mut rerank_guard = match &state.reranker {
         Some(r) => Some(r.lock().await),
         None => None,
     };
 
     let mut config = search::SearchConfig {
-        orchestrator: orch_guard
-            .as_mut()
-            .map(|g| g.as_mut() as &mut dyn OrchestratorModel),
+        orchestrator: None,
         reranker: rerank_guard
             .as_mut()
             .map(|g| g.as_mut() as &mut dyn RerankModel),
@@ -478,7 +497,7 @@ async fn handle_search(
         rerank_candidates: 30,
     };
 
-    let output = search::search_with_intelligence(&body.query, top_n, &mut *embedder, &mut config)
+    let output = search::search_prepared(&body.query, top_n, &prepared, &mut config)
         .map_err(|e| ApiError::internal(&format!("{e:#}")))?;
     Ok(Json(serde_json::json!(output.results)))
 }
@@ -1164,6 +1183,9 @@ mod tests {
         let rate_limiter = Arc::new(RateLimiter::new(config.rate_limit));
         ApiState {
             store: Arc::new(Mutex::new(store)),
+            // In-memory stores cannot be reopened by a second connection, so
+            // these tests exercise the exclusive-lock fallback.
+            read_pool: None,
             embedder: Arc::new(Mutex::new(
                 Box::new(DummyEmbedder) as Box<dyn EmbedModel + Send>
             )),

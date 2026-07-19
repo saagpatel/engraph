@@ -169,6 +169,42 @@ impl Store {
         Ok(store)
     }
 
+    /// Open an additional read-only connection to an existing database.
+    ///
+    /// Deliberately skips `init()`: the schema, migrations, and vec0 table
+    /// creation are the writer's job, and running them here would both fail on
+    /// a read-only handle and race the writer. The file is already in WAL mode
+    /// (set by the writer's `init()`), which is what lets these connections
+    /// read concurrently.
+    pub fn open_read_only(path: &Path) -> Result<Self> {
+        crate::vecstore::init_sqlite_vec();
+        let conn = Connection::open_with_flags(
+            path,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_URI,
+        )
+        .with_context(|| format!("failed to open {} read-only", path.display()))?;
+        conn.execute_batch("PRAGMA busy_timeout = 5000;")
+            .context("failed to set busy_timeout on read-only connection")?;
+        Ok(Self {
+            conn,
+            vector_cache: None,
+        })
+    }
+
+    /// Share a vector cache with this store, so pooled readers reuse the
+    /// writer's cache instead of each building their own.
+    pub fn set_vector_cache(&mut self, cache: Option<Arc<crate::vecstore::VectorCache>>) {
+        self.vector_cache = cache;
+    }
+
+    /// Handle to this store's vector cache, for sharing with read connections.
+    ///
+    /// Without this a pooled reader falls back to sqlite-vec KNN, which is
+    /// substantially slower than the in-memory scan the writer uses.
+    pub fn vector_cache(&self) -> Option<Arc<crate::vecstore::VectorCache>> {
+        self.vector_cache.clone()
+    }
+
     /// Open an in-memory store (useful for tests).
     pub fn open_memory() -> Result<Self> {
         crate::vecstore::init_sqlite_vec();

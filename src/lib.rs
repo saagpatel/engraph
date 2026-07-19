@@ -18,6 +18,7 @@ pub mod onboarding;
 pub mod openapi;
 pub mod placement;
 pub mod profile;
+pub mod readpool;
 pub mod search;
 pub mod serve;
 pub mod store;
