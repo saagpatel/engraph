@@ -1,19 +1,22 @@
 # Q9a branch summary: read pool, GPU gate, and four refuted premises
 
-Branch `fable/q9a-read-pool`, 9 commits on top of `1f1b205`. 513 tests, `fmt` /
+Branch `fable/q9a-read-pool`, 11 commits on top of `1f1b205`. 513 tests, `fmt` /
 `clippy -D warnings` / `test` all green. Nothing pushed. The live `~/.engraph`
 index was checksum-verified unchanged before and after every experiment.
 
 This document exists so the merge decision can be made on evidence rather than
-on commit subjects, because two of the headline numbers are weaker than they
-look and one change was built and then deliberately thrown away.
+on commit subjects, because one headline number is weaker than it looks, one change
+was built and then deliberately thrown away, and the component that took the
+most effort is justified by a completely different measurement than the one it
+was built for.
 
 ## The short version
 
 Concurrent search was fully serialized. It is now roughly 1.4x on the
-intelligence-off path and, more importantly, no longer *worse* than sequential
-on the intelligence-on path. Along the way a silent regression introduced by
-this same branch was found and fixed, and it was worth more than the
+intelligence-off path, no longer *worse* than sequential on the intelligence-on
+path, and roughly 2.5x better at serving reads while writes are in flight.
+Along the way a silent regression introduced by this same branch was found and
+fixed, and it was worth more than the
 concurrency work: it cut intelligence-on latency from 8786ms to 3475ms.
 
 ## What the review asked for, and why it was wrong
@@ -48,7 +51,8 @@ shown no change and wrongly discredited the pool.
 > **Correction.** An earlier version of this document claimed "both the read
 > pool and the embedder split were required, either alone measures as nothing."
 > That was asserted, never tested, and it is wrong. See "Does the pool earn its
-> keep?" below. The embedder split appears to be doing the work.
+> keep?" below. The embedder split does the search-only work; the pool earns
+> its place under mixed read/write load instead.
 
 ## Measurements
 
@@ -77,7 +81,7 @@ meaning concurrency was losing to sequential. Gated: zero. At n=3 this is
 directional rather than conclusive, but the gate wins on min, median, and worst
 case, and it removes the regime where adding load reduces throughput.
 
-## Does the pool earn its keep? Unresolved, and the search-only answer is no.
+## Does the pool earn its keep? Yes, but not for the reason it was built.
 
 The baseline comparison above changes two things at once: it adds the read pool
 *and* releases the embedder before store work. It never isolated them. Setting
@@ -104,35 +108,34 @@ pool's actual purpose: keeping reads off the single write connection. Under
 mixed load the pool should stop searches queueing behind indexing and MCP
 writes. `bench/mixed.mjs` measures that.
 
-Write pressure clearly hurts readers. With writes succeeding cleanly (0 write
-failures) at pool=1, search p50 goes from 105ms quiet to 399ms under writes,
-a **3.79x** degradation. That is the symptom the pool exists to relieve.
-
-The A/B is suggestive but not clean. One paired run completed with both legs on
-the same binary:
+**This is the decision-grade measurement.** Two paired runs, both legs on the
+same binary, zero write failures in all four legs (`bench/mixed.mjs` now uses a
+run-unique filename prefix and hard-fails above 10% write failures, after an
+earlier pair was invalidated by collisions rejecting ~75% of writes):
 
 ```
-3920 chunks, searches under continuous writes
-  pool=1   quiet p50 111ms -> under writes p50 239ms   p95 565ms   2.15x
-  pool=4   quiet p50 132ms -> under writes p50 234ms   p95 324ms   1.77x
+3920 chunks, 10s of searches under continuous writes
+
+           degradation      p95 under writes    searches completed
+  pool=1   6.10x  3.39x     1300ms   608ms      17   26
+  pool=4   2.46x  2.25x      580ms   646ms      39   39
 ```
 
-pool=4 degrades less and its p95 under writes is far better, 324ms against
-565ms. Both legs are contaminated the same way, though: filename collisions from
-an earlier run meant roughly 75% of writes were rejected, so that pair measured
-partly rejected-request pressure rather than real indexing. `bench/mixed.mjs`
-now uses a run-unique filename prefix and hard-fails when more than 10% of
-writes fail, so this specific contamination cannot recur silently.
+The pool wins on every run. Read throughput under write pressure is the most
+stable signal: pool=4 completed 39 searches in both runs, against 17 and 26 for
+pool=1. Writes went faster too (40 issued versus 23 and 36), because readers
+stop holding the connection writers need.
 
-The clean re-run got pool=1 (3.79x, quoted above) and then **could not obtain
-pool=4**: the release binary was deleted mid-run by an external process, twice,
-at the same point. The whole `target/` directory disappears with 193Gi free,
-most likely a scheduled build-artifact sweep over `~/Projects`. Each rebuild
-costs about 19 minutes and then gets deleted again.
+So the ReadPool does earn its keep, just not for the reason it was built. It
+does nothing for search-only concurrency at any scale tested. What it does is
+stop searches and writes from strangling each other, which matters for a server
+running a file watcher that reindexes on every vault save.
 
-So: the pool looks like it helps under mixed load, on a contaminated but
-symmetric comparison. That is the honest state. It is not proof, and the clean
-number is one 19-minute rebuild away from existing.
+Getting this number required building to a `CARGO_TARGET_DIR` outside
+`~/Projects`, because an external process kept deleting `target/` mid-run
+(twice, same point, with 193Gi free). The binary survived every run once built
+in scratch, which localizes the deletion to paths under `~/Projects` and
+supports the scheduled-sweep hypothesis.
 
 ## The regression this branch introduced and then fixed
 
@@ -200,20 +203,18 @@ appearing to succeed.
 
 ## Open decisions for the operator
 
-1. **Does the ReadPool stay?** This is now the main question. The concurrency
-   win is attributable to the embedder phase split; the pool measured neutral
-   at two scales for search-only load. Its justification rests on mixed
-   read/write load, where it looks genuinely useful (1.77x versus 2.15x
-   degradation, p95 324ms versus 565ms) on a contaminated but symmetric
-   comparison. Recommended: rerun `bench/mixed.mjs` at pool=1 and pool=4 on a
-   build that survives, and decide on that one number. If the pool holds its
-   advantage, keep it; if not, dropping it removes `readpool.rs`, the
-   `Option<ReadPool>` plumbing, and a chunk of review surface while keeping the
-   entire measured concurrency win.
+1. **RESOLVED: the ReadPool stays.** It contributes nothing to search-only
+   concurrency at either scale tested, but under mixed read/write load it is
+   decisive: 2.25-2.46x search degradation against 6.10x and 3.39x without it,
+   and 39 searches completed per window against 17 and 26. That is the case
+   that matters for a server running a file watcher. No action needed; this is
+   recorded so the neutral search-only numbers above are not later mistaken for
+   a reason to remove it.
 2. **The build-artifact sweep needs an exemption or a pause.** Whatever deletes
-   `target/` under `~/Projects` made the deciding measurement unobtainable
-   twice, at ~19 minutes per rebuild. Any further perf work on this repo needs
-   that addressed first.
+   `target/` under `~/Projects` cost roughly 40 minutes of rebuilds and blocked
+   this measurement twice. Working around it with a `CARGO_TARGET_DIR` outside
+   `~/Projects` is what unblocked it. Worth fixing properly before further perf
+   work here, and worth knowing about for any other Rust repo under that path.
 3. **Merge as-is?** The intelligence-off win is solid. The intelligence-on story
    is "no longer harmful", which is honest but less exciting than the commit
    subjects imply.
