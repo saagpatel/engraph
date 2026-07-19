@@ -51,3 +51,16 @@ proposals, (3) public material for saagarpatel.dev.
   draft + explainer concept written (06). Web findings verified inline (05);
   explainer-craft survey still open. Branch: 5 commits, 468/468 tests, ready
   for operator review.
+- 2026-07-19: Q9a shipped (09-q9a-branch-summary.md). Concurrent search was
+  fully serialized; the review's "four locks held together" was the wrong
+  culprit, since the real serializer was a single rusqlite Connection behind
+  Arc<Mutex<Store>>. Read pool + embedder phase split takes intelligence-off
+  from 1.05x to 1.48x at 8-way. A GpuGate removes the regime where
+  intelligence-on concurrency was WORSE than sequential (4 of 6 ungated runs
+  below 1.0x). Biggest single win was accidental: this branch broke the
+  orchestration LLM cache via a read-only connection whose write error was
+  discarded, and fixing it cut intelligence-on latency 8786ms to 3475ms.
+  Four premises refuted and documented so they are not rebuilt, including one
+  valid review finding that was implemented, measured as neutral, and reverted.
+  All measurement is on a 300-note synthetic index; the real vault is
+  unreadable (iCloud dataless), so true-scale behavior is projected.
