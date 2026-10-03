@@ -18,7 +18,7 @@ cd engraph
 
 Run commands from the checkout root containing `Cargo.toml`. Use current stable Rust/Cargo with the `rustfmt` and `clippy` components. Building llama.cpp requires CMake, a C/C++ compiler toolchain, and libclang for generated bindings. On macOS, install Xcode Command Line Tools and CMake; on Ubuntu, the corresponding packages are `build-essential`, `cmake`, `clang`, and `libclang-dev`. CI runs on macOS and Ubuntu; other platforms need separate validation.
 
-The commands below use the committed `Cargo.lock`. The first Cargo build may fetch crates, but tests use mock models and do not download GGUF models or index a personal vault. Test stores/files are in-memory or temporary; one `Config::load` test reads an existing `~/.engraph/config.toml` without writing it.
+The commands below use the committed `Cargo.lock`. The first Cargo build may fetch crates, but tests use mock models and do not download GGUF models or index a personal vault. Test stores/files are in-memory or temporary. The full library command below sets `ENGRAPH_DATA_DIR` to a new disposable directory so the `Config::load` test also avoids personal configuration.
 
 ```bash
 # Build and inspect the CLI without loading config, indexing, or starting a server.
@@ -32,11 +32,11 @@ cargo test --test golden_search --locked
 # Full local checks (format, lint, library tests, and the search regression).
 cargo fmt --check
 cargo clippy --locked -- -D warnings
-cargo test --lib --locked
+ENGRAPH_DATA_DIR="$(mktemp -d)" cargo test --lib --locked
 cargo test --test golden_search --locked
 ```
 
-Use the relevant module/test name as a filter for other focused changes. The old `integration` test target is no longer present. CI checks formatting, Clippy, and library tests; run `golden_search` locally for search changes.
+Use the relevant module/test name as a filter for other focused changes; use the same `ENGRAPH_DATA_DIR` override for tests that load config or other application data. `mktemp -d` creates a fixture-only directory on macOS/Linux without changing an existing exported data-directory setting; it can be removed after the command completes. The old `integration` test target is no longer present. CI checks formatting, Clippy, and library tests; run `golden_search` locally for search changes.
 
 Do not use `init`, `index`, `configure`, `write`, `migrate`, or `serve` as a routine smoke check: they can read or change the configured vault and `~/.engraph/`, download models, or start watchers/servers. Real GGUF inference and live MCP/HTTP behavior require a separately isolated synthetic vault and disposable user data; the mock suite does not prove those capabilities. For changed HTTP/OpenAPI behavior, verify the affected responses in that isolated setup, adding browser checks when the changed behavior is used in a browser. Pure documentation changes do not require starting services or a browser.
 
