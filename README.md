@@ -622,14 +622,7 @@ All data stored in `~/.engraph/` — single SQLite database (~10MB typical), GGU
 
 ## Development
 
-```bash
-cargo test --lib          # 426 unit tests, no network (requires CMake for llama.cpp)
-cargo clippy -- -D warnings
-cargo fmt --check
-
-# Integration tests (downloads GGUF model)
-cargo test --test integration -- --ignored
-```
+See [Development and verification](CONTRIBUTING.md#development-and-verification) for build prerequisites, a safe CLI smoke check, focused tests, and the full local check suite. The current search regression fixture uses a mock model and does not download GGUF files.
 
 ## Contributing
 

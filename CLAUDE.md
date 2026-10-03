@@ -84,9 +84,7 @@ Single vault only. Re-indexing a different vault path triggers a confirmation pr
 
 ## Testing
 
-- Unit tests in each module (`cargo test --lib`) — 468 tests, no network required
-- Integration tests (`cargo test --test integration -- --ignored`) — require GGUF model download
-- Build requires CMake (for llama.cpp C++ compilation)
+See [Development and verification](CONTRIBUTING.md#development-and-verification) for prerequisites, safe CLI smoke checks, focused module tests, the model-free `golden_search` fixture, and the full local checks. The former `integration` test target has been removed.
 
 ## CI/CD
 
@@ -97,11 +95,7 @@ Single vault only. Re-indexing a different vault path triggers a confirmation pr
 ## Common tasks
 
 ```bash
-# Run tests (requires CMake)
-cargo test --lib
-
-# Run integration tests (downloads GGUF model)
-cargo test --test integration -- --ignored
+# Run tests: use the focused and full checks in CONTRIBUTING.md.
 
 # Build release
 cargo build --release
