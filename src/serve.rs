@@ -6,7 +6,7 @@ use std::time::SystemTime;
 use anyhow::Result;
 use rmcp::handler::server::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
-use rmcp::model::{CallToolResult, Content, ServerCapabilities, ServerInfo};
+use rmcp::model::{CallToolResult, ContentBlock as Content, ServerCapabilities, ServerInfo};
 use rmcp::schemars;
 use rmcp::schemars::JsonSchema;
 use rmcp::{ErrorData as McpError, ServiceExt, tool, tool_handler, tool_router};
