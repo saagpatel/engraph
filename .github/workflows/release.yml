@@ -4,13 +4,16 @@ on:
   push:
     tags: ["v*"]
 
+permissions:
+  contents: read
+
 jobs:
   build:
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: macos-14
+          - os: macos-15
             archive: engraph-macos-arm64.tar.gz
           - os: ubuntu-latest
             archive: engraph-linux-x86_64.tar.gz
@@ -18,18 +21,18 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install CMake (Ubuntu)
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y cmake
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable (2026-10-05)
       - run: cargo build --release
       - name: Archive binary
         run: |
           cd target/release
           tar czf ../../${{ matrix.archive }} engraph
           cd ../..
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           files: ${{ matrix.archive }}
 
@@ -52,7 +55,7 @@ jobs:
         env:
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: |
-          git clone https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/devwhodevs/homebrew-tap.git
+          git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/devwhodevs/homebrew-tap.git"
           cd homebrew-tap
 
           cat > Formula/engraph.rb << 'FORMULA'
